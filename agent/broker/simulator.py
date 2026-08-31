@@ -249,10 +249,17 @@ class SimulatorBroker(BaseBroker):
     async def close_position(self, position_id: str, reason: str = "MANUAL") -> Position:
         pos = next((p for p in self.open_positions if p.id == position_id), None)
         if not pos:
+            # Check if it was already closed (e.g. by TP/SL hit)
+            closed_match = next((p for p in self.closed_positions if p.id == position_id), None)
+            if closed_match:
+                return closed_match
             raise Exception(f"Position {position_id} nicht gefunden.")
         
-        price_info = await self.get_current_price(pos.instrument)
-        exit_price = price_info.bid if pos.direction == PositionDirection.BUY else price_info.ask
+        mid = self.current_prices.get(pos.instrument, self.BASE_PRICES.get(pos.instrument, 1.0850))
+        pip = self._get_pip_multiplier(pos.instrument)
+        spread_pip = self.SPREAD_PIPS.get(pos.instrument, 1.5)
+        half_spread = (spread_pip * pip) / 2.0
+        exit_price = mid - half_spread if pos.direction == PositionDirection.BUY else mid + half_spread
         self._close_position_internal(pos, exit_price, reason)
         return pos
 
@@ -265,7 +272,7 @@ class SimulatorBroker(BaseBroker):
         return pos
 
     async def get_open_positions(self) -> List[Position]:
-        return self.open_positions
+        return list(self.open_positions)
 
     async def get_closed_positions(self) -> List[Position]:
-        return self.closed_positions
+        return list(self.closed_positions)
