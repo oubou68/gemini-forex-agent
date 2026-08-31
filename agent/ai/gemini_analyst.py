@@ -125,38 +125,59 @@ class GeminiForexAnalyst:
         if not raw_text:
             return None
 
-        # Parse JSON
+        def _safe_float(val: Any, default: Optional[float] = None) -> Optional[float]:
+            if val is None:
+                return default
+            try:
+                if isinstance(val, (int, float)):
+                    return float(val)
+                val_str = str(val).strip().replace("$", "").replace("€", "").replace(",", ".")
+                if not val_str or val_str.lower() in ("null", "none", "n/a", "--", "nan"):
+                    return default
+                return float(val_str)
+            except (ValueError, TypeError):
+                return default
+
+        # Parse JSON & extract outermost JSON block
         cleaned_json = raw_text.strip()
-        # Entferne Markdown-Code-Blöcke falls vorhanden
         if "```json" in cleaned_json:
-            cleaned_json = cleaned_json.split("```json")[1].split("```")[0].strip()
+            cleaned_json = cleaned_json.split("```json", 1)[1].split("```", 1)[0].strip()
         elif "```" in cleaned_json:
-            cleaned_json = cleaned_json.split("```")[1].split("```")[0].strip()
+            cleaned_json = cleaned_json.split("```", 1)[1].split("```", 1)[0].strip()
+
+        first_brace = cleaned_json.find("{")
+        last_brace = cleaned_json.rfind("}")
+        if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+            cleaned_json = cleaned_json[first_brace:last_brace + 1]
 
         try:
             data = json.loads(cleaned_json)
-            action_str = data.get("action", "HOLD").upper()
+            action_str = str(data.get("action") or "HOLD").upper().strip()
             action = TradeAction(action_str) if action_str in TradeAction.__members__ else TradeAction.HOLD
             
-            entry = float(data.get("entry_price", price.mid))
-            sl = float(data["stop_loss"]) if data.get("stop_loss") else None
-            tp1 = float(data["take_profit_1"]) if data.get("take_profit_1") else None
-            tp2 = float(data["take_profit_2"]) if data.get("take_profit_2") else None
+            entry = _safe_float(data.get("entry_price"), default=price.mid)
+            sl = _safe_float(data.get("stop_loss"), default=None)
+            tp1 = _safe_float(data.get("take_profit_1"), default=None)
+            tp2 = _safe_float(data.get("take_profit_2"), default=None)
+            rrr = _safe_float(data.get("risk_reward_ratio"), default=1.8) or 1.8
+            inv = _safe_float(data.get("invalidation_level"), default=(sl or entry))
+            risk_pct = _safe_float(data.get("suggested_risk_pct"), default=1.0) or 1.0
+            confidence = _safe_float(data.get("confidence"), default=50.0) or 50.0
 
             return GeminiTradeDecision(
                 action=action,
                 instrument=instrument,
-                confidence=float(data.get("confidence", 50.0)),
-                thesis_summary=data.get("thesis_summary", "Gemini Analyse ausgeführt"),
-                reasoning=data.get("reasoning", ""),
+                confidence=confidence,
+                thesis_summary=str(data.get("thesis_summary") or "Gemini Analyse ausgeführt"),
+                reasoning=str(data.get("reasoning") or ""),
                 entry_price=entry,
                 stop_loss=sl,
                 take_profit_1=tp1,
                 take_profit_2=tp2,
-                risk_reward_ratio=float(data.get("risk_reward_ratio", 1.8)),
-                invalidation_level=float(data.get("invalidation_level", sl or entry)),
-                suggested_risk_pct=float(data.get("suggested_risk_pct", 1.0)),
-                setup_type=data.get("setup_type", "NONE")
+                risk_reward_ratio=rrr,
+                invalidation_level=inv,
+                suggested_risk_pct=risk_pct,
+                setup_type=str(data.get("setup_type") or "NONE")
             )
         except Exception as e:
             logger.warning(f"Fehler beim Parsen der Gemini JSON Antwort: {e}. Antwort war: {raw_text[:200]}")
