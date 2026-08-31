@@ -2,6 +2,7 @@
 
 let socket = null;
 let activeBot = "forex"; // "forex" | "stock"
+let currentRenderedKey = ""; // Tracks currently rendered bot:instrument
 
 const FOREX_INSTRUMENTS = ["EUR_USD", "GBP_USD", "USD_JPY", "AUD_USD", "EUR_JPY"];
 const STOCK_SYMBOLS = ["AAPL", "NVDA", "TSLA", "SPY", "QQQ", "MSFT", "AMD"];
@@ -12,17 +13,19 @@ const botStates = {
     instrument: "EUR_USD",
     isRunning: true,
     mode: "simulator",
-    telemetry: null,
-    candles: []
+    telemetry: null
   },
   stock: {
     instrument: "AAPL",
     isRunning: true,
     mode: "simulator",
-    telemetry: null,
-    candles: []
+    telemetry: null
   }
 };
+
+// High-Performance In-Memory Chart Cache
+// Key: `${botType}:${symbol}` -> { uniqueCandles, uniqueVolumes, ema9Data, ema21Data, ema50Data, vwapData }
+const chartDataCache = new Map();
 
 // Lightweight Charts Variables
 let chart = null;
@@ -32,6 +35,7 @@ let ema9Series = null;
 let ema21Series = null;
 let ema50Series = null;
 let vwapSeries = null;
+let chartResizeObserver = null;
 
 // DOM Elements
 const tabForex = document.getElementById("tabForex");
@@ -52,7 +56,6 @@ const riskStatusPill = document.getElementById("riskStatusPill");
 const sessionTitle = document.getElementById("sessionTitle");
 const sessionValue = document.getElementById("sessionValue");
 const spreadContainer = document.getElementById("spreadContainer");
-const spreadValue = document.getElementById("spreadValue");
 const currentRateBadge = document.getElementById("currentRateBadge");
 
 // Chart & Header DOM
@@ -132,6 +135,7 @@ const inputAlpacaSecret = document.getElementById("inputAlpacaSecret");
 // Initialize Lightweight Charts
 function initChart() {
   const chartContainer = document.getElementById("tradingviewChart");
+  if (!chartContainer) return;
   chartContainer.innerHTML = "";
 
   chart = LightweightCharts.createChart(chartContainer, {
@@ -150,6 +154,7 @@ function initChart() {
     },
     rightPriceScale: {
       borderColor: "rgba(255, 255, 255, 0.08)",
+      autoScale: true,
     },
     timeScale: {
       borderColor: "rgba(255, 255, 255, 0.08)",
@@ -173,7 +178,7 @@ function initChart() {
     priceScaleId: "",
   });
   volumeSeries.priceScale().applyOptions({
-    scaleMargins: { top: 0.8, bottom: 0 },
+    scaleMargins: { top: 0.82, bottom: 0 },
   });
 
   // EMAs
@@ -184,49 +189,70 @@ function initChart() {
   // VWAP Series for Stocks
   vwapSeries = chart.addLineSeries({ color: "#00f2fe", lineWidth: 2, title: "VWAP" });
 
-  window.addEventListener("resize", () => {
-    if (chart && chartContainer) {
-      chart.applyOptions({ width: chartContainer.clientWidth, height: chartContainer.clientHeight });
-    }
-  });
-  setTimeout(() => {
-    if (chart && chartContainer) {
-      chart.applyOptions({ width: chartContainer.clientWidth, height: chartContainer.clientHeight });
-    }
-  }, 100);
+  // GPU & Container ResizeObserver for zero-lag responsiveness
+  if (window.ResizeObserver) {
+    chartResizeObserver = new ResizeObserver((entries) => {
+      if (!entries || !entries.length || !chart) return;
+      const entry = entries[0];
+      const width = Math.floor(entry.contentRect.width);
+      const height = Math.floor(entry.contentRect.height);
+      if (width > 0 && height > 0) {
+        chart.applyOptions({ width, height });
+      }
+    });
+    chartResizeObserver.observe(chartContainer);
+  } else {
+    window.addEventListener("resize", () => {
+      if (chart && chartContainer) {
+        chart.applyOptions({ width: chartContainer.clientWidth, height: chartContainer.clientHeight });
+      }
+    });
+  }
 }
 
-// Convert Candles to Lightweight Charts Format
-function setChartData(candles, botType = activeBot) {
-  if (!candleSeries || !candles || candles.length === 0) return;
+// Fast ISO Date to Unix Epoch Parser
+function fastParseTimestamp(timeVal) {
+  if (typeof timeVal === "number") return timeVal > 1e11 ? Math.floor(timeVal / 1000) : timeVal;
+  if (!timeVal) return Math.floor(Date.now() / 1000);
+  const ts = Date.parse(timeVal);
+  return isNaN(ts) ? Math.floor(Date.now() / 1000) : Math.floor(ts / 1000);
+}
 
-  const candleData = [];
-  const volumeData = [];
+// High-Performance Single-Pass Processor for Candles & Indicators
+function processCandlesData(candles, botType) {
+  if (!candles || candles.length === 0) return null;
 
-  candles.forEach((c) => {
-    const timestamp = Math.floor(new Date(c.time).getTime() / 1000);
-    candleData.push({
+  const n = candles.length;
+  const candleData = new Array(n);
+  const volumeData = new Array(n);
+
+  for (let i = 0; i < n; i++) {
+    const c = candles[i];
+    const timestamp = fastParseTimestamp(c.time);
+    const isOpenCloseUp = c.close >= c.open;
+    candleData[i] = {
       time: timestamp,
       open: c.open,
       high: c.high,
       low: c.low,
       close: c.close,
-    });
-    volumeData.push({
+    };
+    volumeData[i] = {
       time: timestamp,
       value: c.volume || 10,
-      color: c.close >= c.open ? "rgba(16, 185, 129, 0.25)" : "rgba(244, 63, 94, 0.25)",
-    });
-  });
+      color: isOpenCloseUp ? "rgba(16, 185, 129, 0.25)" : "rgba(244, 63, 94, 0.25)",
+    };
+  }
 
-  // Deduplicate by timestamp
+  // Deduplicate & sort if necessary
   const uniqueCandles = [];
   const uniqueVolumes = [];
   const seenTimes = new Set();
 
   for (let i = 0; i < candleData.length; i++) {
-    if (!seenTimes.has(candleData[i].time)) {
-      seenTimes.add(candleData[i].time);
+    const t = candleData[i].time;
+    if (!seenTimes.has(t)) {
+      seenTimes.add(t);
       uniqueCandles.push(candleData[i]);
       uniqueVolumes.push(volumeData[i]);
     }
@@ -235,84 +261,164 @@ function setChartData(candles, botType = activeBot) {
   uniqueCandles.sort((a, b) => a.time - b.time);
   uniqueVolumes.sort((a, b) => a.time - b.time);
 
-  candleSeries.setData(uniqueCandles);
-  volumeSeries.setData(uniqueVolumes);
+  const count = uniqueCandles.length;
+  if (count === 0) return null;
 
-  // Compute EMAs
-  calculateAndSetEma(uniqueCandles, 9, ema9Series);
-  calculateAndSetEma(uniqueCandles, 21, ema21Series);
-  calculateAndSetEma(uniqueCandles, 50, ema50Series);
-
-  // Compute VWAP for Stocks
-  if (botType === "stock") {
-    vwapLegendItem.style.display = "inline-flex";
-    calculateAndSetVwap(uniqueCandles, uniqueVolumes, vwapSeries);
-  } else {
-    vwapLegendItem.style.display = "none";
-    vwapSeries.setData([]);
-  }
-
-  chart.timeScale().fitContent();
-}
-
-function calculateAndSetEma(candleData, period, series) {
-  if (candleData.length < period) return;
-  const emaData = [];
-  const k = 2 / (period + 1);
-  let prevEma = candleData[0].close;
-
-  for (let i = 0; i < candleData.length; i++) {
-    const price = candleData[i].close;
-    if (i === 0) {
-      prevEma = price;
-    } else {
-      prevEma = price * k + prevEma * (1 - k);
-    }
-    if (i >= period - 1) {
-      emaData.push({ time: candleData[i].time, value: prevEma });
-    }
-  }
-  series.setData(emaData);
-}
-
-function calculateAndSetVwap(candleData, volumeData, series) {
-  if (!candleData.length) return;
+  // Single-pass indicator calculation for EMA 9, 21, 50 & VWAP
+  const ema9Data = [];
+  const ema21Data = [];
+  const ema50Data = [];
   const vwapData = [];
+
+  const k9 = 2 / 10;
+  const k21 = 2 / 22;
+  const k50 = 2 / 51;
+
+  let ema9 = uniqueCandles[0].close;
+  let ema21 = uniqueCandles[0].close;
+  let ema50 = uniqueCandles[0].close;
+
   let cumVol = 0;
   let cumTpVol = 0;
+  const isStock = botType === "stock";
 
-  for (let i = 0; i < candleData.length; i++) {
-    const c = candleData[i];
-    const vol = volumeData[i] ? volumeData[i].value : 1;
-    const tp = (c.high + c.low + c.close) / 3;
-    cumVol += vol;
-    cumTpVol += (tp * vol);
-    const vwapVal = cumTpVol / (cumVol + 1e-9);
-    vwapData.push({ time: c.time, value: parseFloat(vwapVal.toFixed(2)) });
+  for (let i = 0; i < count; i++) {
+    const c = uniqueCandles[i];
+    const price = c.close;
+    const time = c.time;
+
+    if (i === 0) {
+      ema9 = price;
+      ema21 = price;
+      ema50 = price;
+    } else {
+      ema9 = price * k9 + ema9 * (1 - k9);
+      ema21 = price * k21 + ema21 * (1 - k21);
+      ema50 = price * k50 + ema50 * (1 - k50);
+    }
+
+    if (i >= 8) ema9Data.push({ time, value: parseFloat(ema9.toFixed(isStock ? 2 : 5)) });
+    if (i >= 20) ema21Data.push({ time, value: parseFloat(ema21.toFixed(isStock ? 2 : 5)) });
+    if (i >= 49) ema50Data.push({ time, value: parseFloat(ema50.toFixed(isStock ? 2 : 5)) });
+
+    if (isStock) {
+      const vol = uniqueVolumes[i] ? uniqueVolumes[i].value : 1;
+      const tp = (c.high + c.low + c.close) / 3;
+      cumVol += vol;
+      cumTpVol += (tp * vol);
+      const vwapVal = cumTpVol / (cumVol + 1e-9);
+      vwapData.push({ time, value: parseFloat(vwapVal.toFixed(2)) });
+    }
   }
-  series.setData(vwapData);
+
+  return {
+    uniqueCandles,
+    uniqueVolumes,
+    ema9Data,
+    ema21Data,
+    ema50Data,
+    vwapData,
+    botType
+  };
 }
 
-// Render Dynamic Instrument Pills
-function renderInstrumentPills() {
-  instrumentSelector.innerHTML = "";
-  const list = activeBot === "stock" ? STOCK_SYMBOLS : FOREX_INSTRUMENTS;
-  const current = botStates[activeBot].instrument;
+// Render processed chart data to canvas in a single frame
+function renderProcessedChart(processed, fitView = false) {
+  if (!chart || !candleSeries || !processed) return;
 
-  list.forEach((inst) => {
-    const btn = document.createElement("button");
-    btn.className = `pill ${inst === current ? "active" : ""}`;
-    btn.textContent = activeBot === "stock" ? `$${inst}` : inst.replace("_", "/");
-    btn.dataset.symbol = inst;
-    btn.addEventListener("click", () => switchInstrument(inst));
-    instrumentSelector.appendChild(btn);
+  requestAnimationFrame(() => {
+    candleSeries.setData(processed.uniqueCandles);
+    volumeSeries.setData(processed.uniqueVolumes);
+    ema9Series.setData(processed.ema9Data);
+    ema21Series.setData(processed.ema21Data);
+    ema50Series.setData(processed.ema50Data);
+
+    if (processed.botType === "stock") {
+      vwapLegendItem.style.display = "inline-flex";
+      vwapSeries.setData(processed.vwapData);
+    } else {
+      vwapLegendItem.style.display = "none";
+      vwapSeries.setData([]);
+    }
+
+    if (fitView) {
+      chart.timeScale().fitContent();
+    }
   });
 }
 
-function switchInstrument(symbol) {
-  botStates[activeBot].instrument = symbol;
-  renderInstrumentPills();
+// Convert Candles, Store in Cache and Render
+function setChartData(candles, botType = activeBot, instrument = null, fitView = false) {
+  if (!candles || candles.length === 0) return;
 
+  const currentInst = instrument || botStates[botType].instrument;
+  const cacheKey = `${botType}:${currentInst}`;
+
+  const processed = processCandlesData(candles, botType);
+  if (!processed) return;
+
+  chartDataCache.set(cacheKey, processed);
+
+  // If this matches the currently active bot & instrument, render to screen
+  if (botType === activeBot && currentInst === botStates[activeBot].instrument) {
+    const isNewSymbol = currentRenderedKey !== cacheKey;
+    currentRenderedKey = cacheKey;
+    renderProcessedChart(processed, fitView || isNewSymbol);
+  }
+}
+
+// Render Dynamic Instrument Pills with Smart DOM Caching
+function renderInstrumentPills() {
+  const list = activeBot === "stock" ? STOCK_SYMBOLS : FOREX_INSTRUMENTS;
+  const current = botStates[activeBot].instrument;
+
+  instrumentSelector.innerHTML = "";
+  const fragment = document.createDocumentFragment();
+
+  list.forEach((inst) => {
+    const btn = document.createElement("button");
+    const isActive = inst === current;
+    btn.className = `pill ${isActive ? "active" : ""}`;
+    btn.textContent = activeBot === "stock" ? `$${inst}` : inst.replace("_", "/");
+    btn.dataset.symbol = inst;
+    btn.addEventListener("click", () => switchInstrument(inst));
+    fragment.appendChild(btn);
+  });
+
+  instrumentSelector.appendChild(fragment);
+}
+
+// Instant Instrument Switcher with 0ms Perceived Latency
+function switchInstrument(symbol) {
+  const prevSymbol = botStates[activeBot].instrument;
+  if (prevSymbol === symbol && currentRenderedKey === `${activeBot}:${symbol}`) return;
+
+  botStates[activeBot].instrument = symbol;
+  const isStock = activeBot === "stock";
+
+  // 1. Instant Tactile Feedback: Update Pills
+  const pills = instrumentSelector.querySelectorAll(".pill");
+  pills.forEach((p) => {
+    if (p.dataset.symbol === symbol) {
+      p.classList.add("active");
+    } else {
+      p.classList.remove("active");
+    }
+  });
+
+  // 2. Instant Header & Tag Update
+  chartPairTitle.textContent = `${isStock ? "$" + symbol : symbol.replace("_", "/")} • M5 Kerzen`;
+  btnManualBuy.querySelector(".active-instrument-label").textContent = `${isStock ? "$" + symbol : symbol.replace("_", "/")} (${isStock ? "Shares" : "Units"})`;
+  btnManualSell.querySelector(".active-instrument-label").textContent = `${isStock ? "$" + symbol : symbol.replace("_", "/")} (${isStock ? "Shares" : "Units"})`;
+
+  // 3. Instant Render from Cache (0ms latency)
+  const cacheKey = `${activeBot}:${symbol}`;
+  if (chartDataCache.has(cacheKey)) {
+    currentRenderedKey = cacheKey;
+    renderProcessedChart(chartDataCache.get(cacheKey), true);
+  }
+
+  // 4. Silently send WebSocket command in background for fresh live data
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({
       action: "SWITCH_INSTRUMENT",
@@ -322,8 +428,9 @@ function switchInstrument(symbol) {
   }
 }
 
-// Bot Switcher Tab Event
+// Bot Switcher Tab Event with Instant Cache Render
 function switchBotTab(targetBot) {
+  if (activeBot === targetBot) return;
   activeBot = targetBot;
 
   if (activeBot === "forex") {
@@ -350,18 +457,27 @@ function switchBotTab(targetBot) {
 
   renderInstrumentPills();
 
-  // Request latest candles for active bot & symbol
-  if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({
-      action: "REQUEST_CANDLES",
-      bot_type: activeBot,
-      instrument: botStates[activeBot].instrument
-    }));
+  const currentInst = botStates[activeBot].instrument;
+  const cacheKey = `${activeBot}:${currentInst}`;
+
+  // Instant render from cache
+  if (chartDataCache.has(cacheKey)) {
+    currentRenderedKey = cacheKey;
+    renderProcessedChart(chartDataCache.get(cacheKey), true);
   }
 
   // Update UI with stored telemetry
   if (botStates[activeBot].telemetry) {
     updateTelemetryUI(botStates[activeBot].telemetry, activeBot);
+  }
+
+  // Request latest candles for active bot & symbol in background
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({
+      action: "REQUEST_CANDLES",
+      bot_type: activeBot,
+      instrument: currentInst
+    }));
   }
 }
 
@@ -412,10 +528,8 @@ function connectWebSocket() {
         }
       } else if (msg.type === "CANDLES") {
         const botType = msg.bot_type || "forex";
-        botStates[botType].candles = msg.data;
-        if (botType === activeBot) {
-          setChartData(msg.data, botType);
-        }
+        const inst = msg.instrument || botStates[botType].instrument;
+        setChartData(msg.data, botType, inst, false);
       }
     } catch (e) {
       console.error("Fehler beim Verarbeiten der WebSocket Nachricht:", e);
@@ -443,7 +557,6 @@ function updateTelemetryUI(data, botType) {
 
   const isStock = botType === "stock";
   const currencySymbol = isStock ? "$" : "€";
-  const formatMoney = (val) => `${formatCurrency(val)} ${currencySymbol}`;
 
   // 1. Account & Status
   const acc = data.account || {};
@@ -493,7 +606,7 @@ function updateTelemetryUI(data, botType) {
   if (price.mid) {
     currentRateBadge.textContent = price.mid.toFixed(isStock ? 2 : (currentInst.includes("JPY") ? 3 : 5));
   }
-  
+
   if (isStock) {
     spreadContainer.innerHTML = `Spread: <strong id="spreadValue">$${(price.spread_pips || 0.02).toFixed(2)}</strong>`;
     sessionTitle.textContent = "US HANDELSSITZUNG";
@@ -592,6 +705,7 @@ function renderPositionsTable(positions, isStock) {
     return;
   }
 
+  const fragment = document.createDocumentFragment();
   positions.forEach((p) => {
     const tr = document.createElement("tr");
     const pnl = p.unrealized_pnl || 0.0;
@@ -610,8 +724,9 @@ function renderPositionsTable(positions, isStock) {
       <td class="font-mono ${pnlClass}"><strong>${pnlFormatted}</strong></td>
       <td><button class="btn btn-close-pos" data-id="${p.id}"><i class="fa-solid fa-xmark"></i> Schließen</button></td>
     `;
-    positionsTableBody.appendChild(tr);
+    fragment.appendChild(tr);
   });
+  positionsTableBody.appendChild(fragment);
 
   // Attach close buttons
   document.querySelectorAll(".btn-close-pos").forEach((btn) => {
@@ -621,12 +736,14 @@ function renderPositionsTable(positions, isStock) {
 
 function renderLogs(logs) {
   logStream.innerHTML = "";
+  const fragment = document.createDocumentFragment();
   logs.forEach((l) => {
     const div = document.createElement("div");
     div.className = `log-entry ${l.category || "SYSTEM"}`;
     div.innerHTML = `<span class="log-time">${l.timestamp || "--:--:--"}</span> [${l.category || "SYSTEM"}] ${l.message}`;
-    logStream.appendChild(div);
+    fragment.appendChild(div);
   });
+  logStream.appendChild(fragment);
   logStream.scrollTop = logStream.scrollHeight;
 }
 

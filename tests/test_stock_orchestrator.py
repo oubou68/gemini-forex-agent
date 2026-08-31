@@ -6,6 +6,7 @@ from agent.core.models import PositionDirection
 @pytest.mark.asyncio
 async def test_stock_orchestrator_lifecycle():
     orch = StockTradingAgentOrchestrator()
+    await orch.set_mode("simulator")
     await orch.initialize()
 
     # 1. Check Initial State

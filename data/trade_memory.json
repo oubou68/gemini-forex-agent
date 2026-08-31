@@ -50,5 +50,70 @@
     "close_time": "2026-08-29T14:25:53.790675Z",
     "close_reason": "EMERGENCY_CLOSE",
     "thesis": "Manueller Notstopp f\u00fcr Aktien ausgel\u00f6st."
+  },
+  {
+    "id": "b0b6dd9d-8b9b-48a9-ba46-b9d54906e415",
+    "instrument": "AAPL",
+    "direction": "BUY",
+    "units": 157,
+    "entry_price": 316.61,
+    "exit_price": 316.35,
+    "realized_pnl": -40.82,
+    "open_time": "2026-08-31T20:00:23.587165Z",
+    "close_time": "2026-08-31T20:00:30.186650Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp f\u00fcr Aktien ausgel\u00f6st."
+  },
+  {
+    "id": "3bed4fb2-4093-4433-b887-770ae3defd3a",
+    "instrument": "BA",
+    "direction": "BUY",
+    "units": 10,
+    "entry_price": 208.74,
+    "exit_price": 209.06,
+    "realized_pnl": 3.2,
+    "open_time": "2026-08-31T20:00:23.587165Z",
+    "close_time": "2026-08-31T20:00:31.118072Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp f\u00fcr Aktien ausgel\u00f6st."
+  },
+  {
+    "id": "b0b6dd9d-8b9b-48a9-ba46-b9d54906e415",
+    "instrument": "AAPL",
+    "direction": "BUY",
+    "units": 157,
+    "entry_price": 316.61,
+    "exit_price": 316.35,
+    "realized_pnl": -40.82,
+    "open_time": "2026-08-31T20:02:54.204993Z",
+    "close_time": "2026-08-31T20:02:59.854984Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp f\u00fcr Aktien ausgel\u00f6st."
+  },
+  {
+    "id": "3bed4fb2-4093-4433-b887-770ae3defd3a",
+    "instrument": "BA",
+    "direction": "BUY",
+    "units": 10,
+    "entry_price": 208.74,
+    "exit_price": 209.06,
+    "realized_pnl": 3.2,
+    "open_time": "2026-08-31T20:02:54.204993Z",
+    "close_time": "2026-08-31T20:03:00.788899Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp f\u00fcr Aktien ausgel\u00f6st."
+  },
+  {
+    "id": "stk_2c724b69",
+    "instrument": "AAPL",
+    "direction": "BUY",
+    "units": 218,
+    "entry_price": 228.64,
+    "exit_price": 228.64,
+    "realized_pnl": 0.0,
+    "open_time": "2026-08-31T20:03:06.771778Z",
+    "close_time": "2026-08-31T20:03:06.771778Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp f\u00fcr Aktien ausgel\u00f6st."
   }
 ]

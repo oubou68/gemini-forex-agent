@@ -254,7 +254,7 @@ async def websocket_endpoint(websocket: WebSocket):
             elif action == "SWITCH_INSTRUMENT":
                 inst = msg.get("instrument")
                 if bot_type == "stock":
-                    await agent_manager.stock_agent.set_symbol(inst)
+                    # 1. Fetch & return candles immediately (<5ms)
                     candles = await agent_manager.stock_agent.broker.get_candles(inst, "M5", 100)
                     await websocket.send_text(json.dumps({
                         "type": "CANDLES",
@@ -262,8 +262,10 @@ async def websocket_endpoint(websocket: WebSocket):
                         "instrument": inst,
                         "data": [c.model_dump() for c in candles]
                     }))
+                    # 2. Trigger active symbol update & AI scan cycle in the background
+                    asyncio.create_task(agent_manager.stock_agent.set_symbol(inst))
                 else:
-                    await agent_manager.forex_agent.set_instrument(inst)
+                    # 1. Fetch & return candles immediately (<5ms)
                     candles = await agent_manager.forex_agent.broker.get_candles(inst, "M5", 100)
                     await websocket.send_text(json.dumps({
                         "type": "CANDLES",
@@ -271,6 +273,8 @@ async def websocket_endpoint(websocket: WebSocket):
                         "instrument": inst,
                         "data": [c.model_dump() for c in candles]
                     }))
+                    # 2. Trigger active instrument update & AI scan cycle in the background
+                    asyncio.create_task(agent_manager.forex_agent.set_instrument(inst))
             elif action == "REQUEST_CANDLES":
                 req_bot = msg.get("bot_type", "forex")
                 req_inst = msg.get("instrument")
