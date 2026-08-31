@@ -375,5 +375,18 @@
     "close_time": "2026-08-31T20:14:05.389487Z",
     "close_reason": "EMERGENCY_CLOSE",
     "thesis": "Manueller Notstopp f\u00fcr Aktien ausgel\u00f6st."
+  },
+  {
+    "id": "stk_d6b1c43f",
+    "instrument": "AAPL",
+    "direction": "BUY",
+    "units": 225,
+    "entry_price": 221.27,
+    "exit_price": 221.27,
+    "realized_pnl": 0.0,
+    "open_time": "2026-08-31T20:16:52.295957Z",
+    "close_time": "2026-08-31T20:16:52.295957Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp f\u00fcr Aktien ausgel\u00f6st."
   }
 ]

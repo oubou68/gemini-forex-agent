@@ -961,6 +961,24 @@ body {
   font-style: italic;
 }
 
+.positions-card {
+  box-shadow: var(--shadow-card);
+}
+
+.positions-card .card-header {
+  padding: 12px 18px;
+}
+
+.positions-card .data-table th,
+.positions-card .data-table td {
+  padding: 8px 14px;
+}
+
+.positions-card .empty-state {
+  padding: 14px 18px;
+  font-size: 12px;
+}
+
 .type-badge {
   font-size: 10px;
   font-weight: 700;

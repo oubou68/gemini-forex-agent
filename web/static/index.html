@@ -148,8 +148,39 @@
 
   <!-- Main Trading Grid -->
   <main class="main-dashboard-grid">
-    <!-- Left: Chart & Technical Matrix -->
+    <!-- Left: Positions Table, Chart & Technical Matrix -->
     <div class="grid-column left-column">
+      <!-- Active Positions & Quick Actions (Top Priority above Chart) -->
+      <div class="card positions-card">
+        <div class="card-header">
+          <div class="card-title-group">
+            <i class="fa-solid fa-table-list"></i>
+            <h2>Aktive Positionen (<span id="openPositionsCount">0</span>)</h2>
+          </div>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table" id="positionsTable">
+            <thead>
+              <tr>
+                <th>ID</th>
+                <th>Symbol/Paar</th>
+                <th>Typ</th>
+                <th>Menge</th>
+                <th>Entry</th>
+                <th>SL / TP</th>
+                <th>GuV</th>
+                <th>Aktion</th>
+              </tr>
+            </thead>
+            <tbody id="positionsTableBody">
+              <tr>
+                <td colspan="8" class="empty-state">Keine offenen Positionen aktiv.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
       <!-- Candlestick Chart Box -->
       <div class="card chart-card">
         <div class="card-header">
@@ -304,37 +335,6 @@
             <span class="lvl-label">Chance-Risiko (RRR)</span>
             <span class="lvl-val" id="lvlRrr">1 : 2.0</span>
           </div>
-        </div>
-      </div>
-
-      <!-- Active Positions & Quick Actions -->
-      <div class="card positions-card">
-        <div class="card-header">
-          <div class="card-title-group">
-            <i class="fa-solid fa-table-list"></i>
-            <h2>Aktive Positionen (<span id="openPositionsCount">0</span>)</h2>
-          </div>
-        </div>
-        <div class="table-responsive">
-          <table class="data-table" id="positionsTable">
-            <thead>
-              <tr>
-                <th>ID</th>
-                <th>Symbol/Paar</th>
-                <th>Typ</th>
-                <th>Menge</th>
-                <th>Entry</th>
-                <th>SL / TP</th>
-                <th>GuV</th>
-                <th>Aktion</th>
-              </tr>
-            </thead>
-            <tbody id="positionsTableBody">
-              <tr>
-                <td colspan="8" class="empty-state">Keine offenen Positionen aktiv.</td>
-              </tr>
-            </tbody>
-          </table>
         </div>
       </div>
 
