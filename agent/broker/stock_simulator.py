@@ -1,0 +1,279 @@
+import logging
+import asyncio
+import math
+import random
+import uuid
+from datetime import datetime, timedelta
+from typing import List, Dict, Optional
+
+from agent.broker.base_broker import BaseBroker
+from agent.core.models import (
+    Candle, MarketPrice, OrderRequest, Position,
+    PositionDirection, PositionStatus, AccountSummary
+)
+
+logger = logging.getLogger(__name__)
+
+
+class StockSimulatorBroker(BaseBroker):
+    """
+    High-Fidelity Paper Trading Simulator für US-Aktien & ETFs (Alpaca Modus).
+    Simuliert realistische Aktien-Preisbewegungen, Volumen, Spreads in Cent,
+    Slippage, Margin und SL/TP-Trigger in US-Dollar.
+    """
+
+    BASE_STOCK_PRICES = {
+        "AAPL": 225.50,
+        "NVDA": 128.40,
+        "TSLA": 212.80,
+        "SPY": 562.30,
+        "QQQ": 482.50,
+        "MSFT": 446.20,
+        "AMD": 154.60,
+    }
+
+    SPREAD_DOLLARS = {
+        "AAPL": 0.02,
+        "NVDA": 0.03,
+        "TSLA": 0.04,
+        "SPY": 0.01,
+        "QQQ": 0.02,
+        "MSFT": 0.03,
+        "AMD": 0.03,
+    }
+
+    def __init__(self, initial_balance: float = 100000.0, currency: str = "USD"):
+        self.currency = currency
+        self.balance = initial_balance
+        self.initial_equity = initial_balance
+        self.daily_start_equity = initial_balance
+        self.open_positions: List[Position] = []
+        self.closed_positions: List[Position] = []
+        
+        # State tracking per stock
+        self.current_prices: Dict[str, float] = dict(self.BASE_STOCK_PRICES)
+        self.candle_history: Dict[str, List[Candle]] = {}
+        self._generate_initial_candle_history()
+
+    def _generate_initial_candle_history(self, count: int = 150):
+        """Generiert eine realistische historische M5-Kerzenreihe für alle Standard-Aktien."""
+        now = datetime.utcnow()
+        for symbol, base_p in self.BASE_STOCK_PRICES.items():
+            candles = []
+            curr_p = base_p
+            # Volatilität bezogen auf Aktienpreis (~0.15% bis 0.35% pro 5m Bar)
+            vol_factor = base_p * 0.002
+            
+            for i in range(count, 0, -1):
+                c_time = (now - timedelta(minutes=i * 5)).isoformat() + "Z"
+                drift = random.gauss(0, vol_factor)
+                open_p = curr_p
+                close_p = max(1.0, open_p + drift)
+                high_p = max(open_p, close_p) + abs(random.gauss(0, vol_factor * 0.6))
+                low_p = min(open_p, close_p) - abs(random.gauss(0, vol_factor * 0.6))
+                low_p = max(0.5, low_p)
+                vol = random.randint(15000, 350000)
+
+                candles.append(Candle(
+                    time=c_time,
+                    open=round(open_p, 2),
+                    high=round(high_p, 2),
+                    low=round(low_p, 2),
+                    close=round(close_p, 2),
+                    volume=vol,
+                    complete=True
+                ))
+                curr_p = close_p
+            
+            self.candle_history[symbol] = candles
+            self.current_prices[symbol] = round(curr_p, 2)
+
+    def step_market(self, instrument: str = "AAPL"):
+        """Simuliert den nächsten Aktien-Tick und prüft SL/TP-Trigger."""
+        symbol = instrument.replace("/", "").replace("_", "").upper()
+        curr = self.current_prices.get(symbol, self.BASE_STOCK_PRICES.get(symbol, 200.0))
+        vol_factor = curr * 0.0015
+        
+        # Random Walk mit Momentum
+        delta = random.gauss(0, vol_factor)
+        new_price = max(1.0, round(curr + delta, 2))
+        self.current_prices[symbol] = new_price
+
+        # Update Kerzenverlauf
+        candles = self.candle_history.setdefault(symbol, [])
+        now_str = datetime.utcnow().isoformat() + "Z"
+        
+        if candles:
+            last_c = candles[-1]
+            last_c.close = new_price
+            last_c.high = max(last_c.high, new_price)
+            last_c.low = min(last_c.low, new_price)
+            last_c.volume += random.randint(500, 4500)
+            
+            # Alle 5 Minuten neue Kerze
+            try:
+                last_time = datetime.fromisoformat(last_c.time.replace("Z", ""))
+                if (datetime.utcnow() - last_time).total_seconds() > 300:
+                    candles.append(Candle(
+                        time=now_str,
+                        open=new_price,
+                        high=new_price,
+                        low=new_price,
+                        close=new_price,
+                        volume=random.randint(1000, 5000),
+                        complete=True
+                    ))
+                    if len(candles) > 300:
+                        candles.pop(0)
+            except Exception:
+                pass
+
+        # Aktualisiere PnL und checke SL / TP Trigger
+        spread = self.SPREAD_DOLLARS.get(symbol, 0.02)
+        bid = round(new_price - spread / 2.0, 2)
+        ask = round(new_price + spread / 2.0, 2)
+
+        to_remove = []
+        for pos in self.open_positions:
+            if pos.instrument == symbol:
+                pos.current_price = bid if pos.direction == PositionDirection.BUY else ask
+                if pos.direction == PositionDirection.BUY:
+                    pos.unrealized_pnl = round((pos.current_price - pos.entry_price) * pos.units, 2)
+                    # Check SL
+                    if pos.stop_loss and pos.current_price <= pos.stop_loss:
+                        pos.close_reason = "SL_HIT"
+                        to_remove.append(pos)
+                    # Check TP
+                    elif pos.take_profit and pos.current_price >= pos.take_profit:
+                        pos.close_reason = "TP_HIT"
+                        to_remove.append(pos)
+                else:
+                    pos.unrealized_pnl = round((pos.entry_price - pos.current_price) * pos.units, 2)
+                    # Check SL
+                    if pos.stop_loss and pos.current_price >= pos.stop_loss:
+                        pos.close_reason = "SL_HIT"
+                        to_remove.append(pos)
+                    # Check TP
+                    elif pos.take_profit and pos.current_price <= pos.take_profit:
+                        pos.close_reason = "TP_HIT"
+                        to_remove.append(pos)
+
+        for pos in to_remove:
+            self._close_position_internal(pos, reason=pos.close_reason or "TRIGGER")
+
+    def _close_position_internal(self, pos: Position, reason: str = "MANUAL") -> Position:
+        if pos in self.open_positions:
+            self.open_positions.remove(pos)
+        
+        pos.status = PositionStatus.CLOSED
+        pos.close_time = datetime.utcnow().isoformat() + "Z"
+        pos.close_reason = reason
+        pos.realized_pnl = pos.unrealized_pnl
+        pos.unrealized_pnl = 0.0
+        self.balance += pos.realized_pnl
+        self.balance = round(self.balance, 2)
+        self.closed_positions.append(pos)
+        logger.info(f"[STOCK_SIMULATOR] Position {pos.id} ({pos.instrument}) geschlossen ({reason}). Realisierter PnL: ${pos.realized_pnl:,.2f}")
+        return pos
+
+    async def initialize(self) -> bool:
+        logger.info(f"Stock Simulator Broker initialisiert. Startkapital: ${self.balance:,.2f} {self.currency}")
+        return True
+
+    async def get_account_summary(self) -> AccountSummary:
+        unrealized = sum(p.unrealized_pnl for p in self.open_positions)
+        realized = sum(p.realized_pnl for p in self.closed_positions)
+        equity = round(self.balance + unrealized, 2)
+        margin_used = round(sum(p.current_price * p.units for p in self.open_positions), 2)
+        margin_avail = round(max(0.0, equity * 2 - margin_used), 2)  # 2x Intraday Buying Power
+
+        daily_dd_pct = 0.0
+        if self.daily_start_equity > 0:
+            dd = (self.daily_start_equity - equity) / self.daily_start_equity * 100.0
+            daily_dd_pct = max(0.0, round(dd, 2))
+
+        return AccountSummary(
+            account_id="SIM_ALPACA_STOCKS_101",
+            currency=self.currency,
+            balance=self.balance,
+            unrealized_pl=round(unrealized, 2),
+            realized_pl=round(realized, 2),
+            equity=equity,
+            margin_used=margin_used,
+            margin_available=margin_avail,
+            open_positions_count=len(self.open_positions),
+            daily_drawdown_pct=daily_dd_pct,
+            daily_start_equity=self.daily_start_equity
+        )
+
+    async def get_candles(self, instrument: str, granularity: str = "M5", count: int = 100) -> List[Candle]:
+        symbol = instrument.replace("/", "").replace("_", "").upper()
+        self.step_market(symbol)
+        candles = self.candle_history.get(symbol, [])
+        return candles[-count:] if len(candles) >= count else candles
+
+    async def get_current_price(self, instrument: str) -> MarketPrice:
+        symbol = instrument.replace("/", "").replace("_", "").upper()
+        self.step_market(symbol)
+        mid = self.current_prices.get(symbol, self.BASE_STOCK_PRICES.get(symbol, 200.0))
+        spread = self.SPREAD_DOLLARS.get(symbol, 0.02)
+        bid = round(mid - spread / 2.0, 2)
+        ask = round(mid + spread / 2.0, 2)
+
+        return MarketPrice(
+            instrument=symbol,
+            time=datetime.utcnow().isoformat() + "Z",
+            bid=bid,
+            ask=ask,
+            spread_pips=round(spread, 2),  # USD Cents
+            mid=mid
+        )
+
+    async def place_order(self, order: OrderRequest) -> Position:
+        symbol = order.instrument.replace("/", "").replace("_", "").upper()
+        self.step_market(symbol)
+        price_info = await self.get_current_price(symbol)
+        
+        # Slippage Simulation ($0.01)
+        slippage = 0.01
+        entry_price = price_info.ask + slippage if order.direction == PositionDirection.BUY else price_info.bid - slippage
+        entry_price = round(entry_price, 2)
+
+        pos_id = f"stk_{uuid.uuid4().hex[:8]}"
+        pos = Position(
+            id=pos_id,
+            instrument=symbol,
+            direction=order.direction,
+            units=max(1, order.units),
+            entry_price=entry_price,
+            current_price=entry_price,
+            stop_loss=round(order.stop_loss, 2) if order.stop_loss else None,
+            take_profit=round(order.take_profit, 2) if order.take_profit else None,
+            unrealized_pnl=0.0,
+            realized_pnl=0.0,
+            open_time=datetime.utcnow().isoformat() + "Z",
+            status=PositionStatus.OPEN
+        )
+        self.open_positions.append(pos)
+        logger.info(f"[STOCK_SIMULATOR] Order ausgeführt: {order.direction.value} {pos.units} Shares {symbol} @ ${entry_price:.2f}")
+        return pos
+
+    async def close_position(self, position_id: str, reason: str = "MANUAL") -> Position:
+        for pos in list(self.open_positions):
+            if pos.id == position_id or pos.instrument == position_id:
+                return self._close_position_internal(pos, reason=reason)
+        raise Exception(f"Position {position_id} nicht gefunden.")
+
+    async def update_stop_loss(self, position_id: str, new_sl: float) -> Position:
+        for pos in self.open_positions:
+            if pos.id == position_id:
+                pos.stop_loss = round(new_sl, 2)
+                logger.info(f"[STOCK_SIMULATOR] Stop-Loss für Position {position_id} angepasst auf ${new_sl:.2f}")
+                return pos
+        raise Exception(f"Position {position_id} nicht gefunden.")
+
+    async def get_open_positions(self) -> List[Position]:
+        return list(self.open_positions)
+
+    async def get_closed_positions(self) -> List[Position]:
+        return list(self.closed_positions)

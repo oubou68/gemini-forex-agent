@@ -1,0 +1,54 @@
+[
+  {
+    "id": "SIM-156963A0",
+    "instrument": "EUR_USD",
+    "direction": "BUY",
+    "units": 100000,
+    "entry_price": 1.08258,
+    "exit_price": 1.08244,
+    "realized_pnl": -14.0,
+    "open_time": "2026-08-29T14:00:01.506283Z",
+    "close_time": "2026-08-29T14:00:08.773538Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp ausgel\u00f6st."
+  },
+  {
+    "id": "SIM-DA1CDED8",
+    "instrument": "EUR_USD",
+    "direction": "BUY",
+    "units": 100000,
+    "entry_price": 1.08251,
+    "exit_price": 1.08222,
+    "realized_pnl": -29.0,
+    "open_time": "2026-08-29T14:00:07.761989Z",
+    "close_time": "2026-08-29T14:00:08.773538Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp ausgel\u00f6st."
+  },
+  {
+    "id": "SIM-1E2A1801",
+    "instrument": "GBP_USD",
+    "direction": "BUY",
+    "units": 93336,
+    "entry_price": 1.27857,
+    "exit_price": 1.27845,
+    "realized_pnl": -11.2,
+    "open_time": "2026-08-29T14:00:08.276291Z",
+    "close_time": "2026-08-29T14:00:08.774051Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp ausgel\u00f6st."
+  },
+  {
+    "id": "stk_4a84d6be",
+    "instrument": "AAPL",
+    "direction": "BUY",
+    "units": 225,
+    "entry_price": 221.64,
+    "exit_price": 221.64,
+    "realized_pnl": 0.0,
+    "open_time": "2026-08-29T14:25:53.790675Z",
+    "close_time": "2026-08-29T14:25:53.790675Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp f\u00fcr Aktien ausgel\u00f6st."
+  }
+]
