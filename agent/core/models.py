@@ -149,6 +149,19 @@ class TradePerformanceStats(BaseModel):
     avg_loss: float = 0.0
 
 
+class StockScreenerCandidate(BaseModel):
+    symbol: str
+    index: str  # NASDAQ, DOW, ETF
+    price: float
+    change_pct: float = 0.0
+    rvol: float = 1.0
+    vwap_position: str = "AT_VWAP"  # ABOVE_VWAP, BELOW_VWAP, AT_VWAP
+    orb_status: str = "INSIDE"      # BREAKOUT_HIGH, BREAKDOWN_LOW, INSIDE
+    rsi: float = 50.0
+    score: float = 50.0
+    signal: str = "HOLD"            # BUY, SELL, HOLD
+
+
 class AgentTelemetry(BaseModel):
     timestamp: str
     is_running: bool
@@ -162,3 +175,4 @@ class AgentTelemetry(BaseModel):
     account: AccountSummary
     stats: TradePerformanceStats
     recent_logs: List[Dict[str, Any]] = []
+    screener_candidates: Optional[List[StockScreenerCandidate]] = None

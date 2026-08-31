@@ -1,11 +1,35 @@
-// Gemini Multi-Agent Intraday Trading Platform (Forex & Stocks) - Frontend Client
+// Gemini Multi-Agent Intraday Trading Platform (Forex, NASDAQ & Dow Jones) - Frontend Client
 
 let socket = null;
 let activeBot = "forex"; // "forex" | "stock"
+let activeStockUniverse = "watchlist"; // "watchlist" | "nasdaq" | "dow" | "etf"
 let currentRenderedKey = ""; // Tracks currently rendered bot:instrument
 
 const FOREX_INSTRUMENTS = ["EUR_USD", "GBP_USD", "USD_JPY", "AUD_USD", "EUR_JPY"];
-const STOCK_SYMBOLS = ["AAPL", "NVDA", "TSLA", "SPY", "QQQ", "MSFT", "AMD"];
+
+// Stock Universes
+const STOCK_WATCHLIST = ["AAPL", "NVDA", "TSLA", "MSFT", "AMZN", "GOOGL", "META", "AMD", "SPY", "QQQ", "DIA"];
+
+const DOW_JONES_30 = [
+  "AAPL", "AMGN", "AMZN", "AXP", "BA", "CAT", "CRM", "CSCO", "CVX", "DIS",
+  "DOW", "GS", "HD", "HON", "IBM", "INTC", "JNJ", "JPM", "KO", "MCD",
+  "MMM", "MRK", "MSFT", "NKE", "NVDA", "PG", "TRV", "UNH", "V", "VZ", "WMT"
+];
+
+const NASDAQ_100 = [
+  "AAPL", "ABNB", "ADBE", "ADI", "ADP", "ADSK", "AEP", "AMAT", "AMD", "AMGN",
+  "AMZN", "ANSS", "ARM", "ASML", "AVGO", "AZN", "BIIB", "BKNG", "BKR", "CCEP",
+  "CDNS", "CDW", "CEG", "CHTR", "CPRT", "CRWD", "CSCO", "CSGP", "CSX", "CTAS",
+  "CTSH", "DASH", "DDOG", "DLTR", "DXCM", "EA", "EXC", "FANG", "FAST", "FTNT",
+  "GEHC", "GFS", "GILD", "GOOG", "GOOGL", "HON", "IDXX", "ILMN", "INTC", "INTU",
+  "ISRG", "KDP", "KHC", "KLAC", "LIN", "LRCX", "LULU", "MAR", "MCHP", "MDB",
+  "MDLZ", "MELI", "META", "MNST", "MRNA", "MRVL", "MSFT", "MU", "NFLX", "NVDA",
+  "NXPI", "ODFL", "ON", "ORLY", "PANW", "PAYX", "PCAR", "PDD", "PEP", "PLTR",
+  "PYPL", "QCOM", "REGN", "ROP", "ROST", "SBUX", "SIRI", "SMCI", "SNPS", "TEAM",
+  "TMUS", "TSLA", "TTD", "TTWO", "TXN", "VRSK", "VRTX", "WBD", "WDAY", "XEL", "ZS"
+];
+
+const INDEX_ETFS = ["SPY", "QQQ", "DIA", "IWM", "SMH", "XLK", "XLF", "XLE"];
 
 // Agent States Cache
 const botStates = {
@@ -24,7 +48,6 @@ const botStates = {
 };
 
 // High-Performance In-Memory Chart Cache
-// Key: `${botType}:${symbol}` -> { uniqueCandles, uniqueVolumes, ema9Data, ema21Data, ema50Data, vwapData }
 const chartDataCache = new Map();
 
 // Lightweight Charts Variables
@@ -42,7 +65,13 @@ const tabForex = document.getElementById("tabForex");
 const tabStock = document.getElementById("tabStock");
 const dotForexMini = document.getElementById("dotForexMini");
 const dotStockMini = document.getElementById("dotStockMini");
+const universeSelector = document.getElementById("universeSelector");
+const searchBoxContainer = document.getElementById("searchBoxContainer");
+const tickerSearchInput = document.getElementById("tickerSearchInput");
+const allTickersList = document.getElementById("allTickersList");
 const instrumentSelector = document.getElementById("instrumentSelector");
+const screenerCard = document.getElementById("screenerCard");
+const screenerTableBody = document.getElementById("screenerTableBody");
 
 const equityTitle = document.getElementById("equityTitle");
 const equityValue = document.getElementById("equityValue");
@@ -210,7 +239,7 @@ function initChart() {
   }
 }
 
-// Fast ISO Date to Unix Epoch Parser
+// Fast Timestamp Parser
 function fastParseTimestamp(timeVal) {
   if (typeof timeVal === "number") return timeVal > 1e11 ? Math.floor(timeVal / 1000) : timeVal;
   if (!timeVal) return Math.floor(Date.now() / 1000);
@@ -244,7 +273,7 @@ function processCandlesData(candles, botType) {
     };
   }
 
-  // Deduplicate & sort if necessary
+  // Deduplicate & sort
   const uniqueCandles = [];
   const uniqueVolumes = [];
   const seenTimes = new Set();
@@ -264,7 +293,7 @@ function processCandlesData(candles, botType) {
   const count = uniqueCandles.length;
   if (count === 0) return null;
 
-  // Single-pass indicator calculation for EMA 9, 21, 50 & VWAP
+  // Single-pass indicator calculation
   const ema9Data = [];
   const ema21Data = [];
   const ema50Data = [];
@@ -367,10 +396,40 @@ function setChartData(candles, botType = activeBot, instrument = null, fitView =
   }
 }
 
-// Render Dynamic Instrument Pills with Smart DOM Caching
+// Populate Search Datalist with all NASDAQ and Dow Jones Tickers
+function populateSearchDatalist() {
+  const allSymbols = Array.from(new Set([...STOCK_WATCHLIST, ...DOW_JONES_30, ...NASDAQ_100, ...INDEX_ETFS])).sort();
+  allTickersList.innerHTML = "";
+  allSymbols.forEach((sym) => {
+    const opt = document.createElement("option");
+    opt.value = sym;
+    allTickersList.appendChild(opt);
+  });
+}
+
+// Render Dynamic Instrument Pills based on active Bot & Universe
 function renderInstrumentPills() {
-  const list = activeBot === "stock" ? STOCK_SYMBOLS : FOREX_INSTRUMENTS;
+  let list = [];
+  if (activeBot === "forex") {
+    list = FOREX_INSTRUMENTS;
+  } else {
+    if (activeStockUniverse === "nasdaq") {
+      list = NASDAQ_100.slice(0, 24); // Show top NASDAQ leaders as quick pills
+    } else if (activeStockUniverse === "dow") {
+      list = DOW_JONES_30; // Show all 30 Dow Jones blue chips
+    } else if (activeStockUniverse === "etf") {
+      list = INDEX_ETFS;
+    } else {
+      list = STOCK_WATCHLIST;
+    }
+  }
+
   const current = botStates[activeBot].instrument;
+
+  // Make sure current symbol is included in the pills if not present
+  if (activeBot === "stock" && !list.includes(current)) {
+    list = [current, ...list];
+  }
 
   instrumentSelector.innerHTML = "";
   const fragment = document.createDocumentFragment();
@@ -390,6 +449,9 @@ function renderInstrumentPills() {
 
 // Instant Instrument Switcher with 0ms Perceived Latency
 function switchInstrument(symbol) {
+  symbol = symbol.replace("/", "").replace("_", "").replace("$", "").toUpperCase().trim();
+  if (!symbol) return;
+
   const prevSymbol = botStates[activeBot].instrument;
   if (prevSymbol === symbol && currentRenderedKey === `${activeBot}:${symbol}`) return;
 
@@ -397,14 +459,7 @@ function switchInstrument(symbol) {
   const isStock = activeBot === "stock";
 
   // 1. Instant Tactile Feedback: Update Pills
-  const pills = instrumentSelector.querySelectorAll(".pill");
-  pills.forEach((p) => {
-    if (p.dataset.symbol === symbol) {
-      p.classList.add("active");
-    } else {
-      p.classList.remove("active");
-    }
-  });
+  renderInstrumentPills();
 
   // 2. Instant Header & Tag Update
   chartPairTitle.textContent = `${isStock ? "$" + symbol : symbol.replace("_", "/")} • M5 Kerzen`;
@@ -428,7 +483,7 @@ function switchInstrument(symbol) {
   }
 }
 
-// Bot Switcher Tab Event with Instant Cache Render
+// Bot Switcher Tab Event
 function switchBotTab(targetBot) {
   if (activeBot === targetBot) return;
   activeBot = targetBot;
@@ -436,6 +491,10 @@ function switchBotTab(targetBot) {
   if (activeBot === "forex") {
     tabForex.classList.add("active");
     tabStock.classList.remove("active");
+    universeSelector.style.display = "none";
+    searchBoxContainer.style.display = "none";
+    screenerCard.style.display = "none";
+
     chartBotTag.textContent = "FOREX";
     chartBotTag.style.background = "rgba(59, 130, 246, 0.2)";
     chartBotTag.style.color = "var(--accent-blue)";
@@ -446,13 +505,17 @@ function switchBotTab(targetBot) {
   } else {
     tabStock.classList.add("active");
     tabForex.classList.remove("active");
-    chartBotTag.textContent = "ALPACAS STOCKS";
+    universeSelector.style.display = "flex";
+    searchBoxContainer.style.display = "flex";
+    screenerCard.style.display = "flex";
+
+    chartBotTag.textContent = "NASDAQ & DOW JONES";
     chartBotTag.style.background = "rgba(16, 185, 129, 0.2)";
     chartBotTag.style.color = "var(--accent-emerald)";
     chartBotTag.style.borderColor = "rgba(16, 185, 129, 0.4)";
     indMatrixTitle.textContent = "VWAP, ORB & Equities Matrix";
     aiBrainTitle.textContent = "Gemini Stock Decision Engine (US Equities)";
-    logHeaderTitle.textContent = "Alpaca Stock Agent Audit Log";
+    logHeaderTitle.textContent = "Stock Agent Audit & Screener Log";
   }
 
   renderInstrumentPills();
@@ -682,20 +745,60 @@ function updateTelemetryUI(data, botType) {
     lvlRrr.textContent = dec.risk_reward_ratio ? `1 : ${dec.risk_reward_ratio}` : "--";
   }
 
-  // 6. Positions Table
+  // 6. Market Radar Screener Table
+  if (isStock && data.screener_candidates) {
+    renderScreenerTable(data.screener_candidates);
+  }
+
+  // 7. Positions Table
   const openPos = data.open_positions || [];
   openPositionsCount.textContent = openPos.length;
   renderPositionsTable(openPos, isStock);
 
-  // 7. Manual Quick Trade Buttons
+  // 8. Manual Quick Trade Buttons
   const unitLabel = isStock ? "Shares" : "Units";
   btnManualBuy.innerHTML = `<i class="fa-solid fa-arrow-up"></i> BUY <span class="active-instrument-label">${isStock ? "$" + currentInst : currentInst.replace("_", "/")} (${unitLabel})</span>`;
   btnManualSell.innerHTML = `<i class="fa-solid fa-arrow-down"></i> SELL <span class="active-instrument-label">${isStock ? "$" + currentInst : currentInst.replace("_", "/")} (${unitLabel})</span>`;
 
-  // 8. Logs
+  // 9. Logs
   if (data.recent_logs && data.recent_logs.length > 0) {
     renderLogs(data.recent_logs);
   }
+}
+
+function renderScreenerTable(candidates) {
+  if (!candidates || candidates.length === 0) return;
+  screenerTableBody.innerHTML = "";
+  const fragment = document.createDocumentFragment();
+
+  candidates.forEach((c) => {
+    const tr = document.createElement("tr");
+    const chgClass = c.change_pct >= 0 ? "positive" : "negative";
+    const chgPrefix = c.change_pct >= 0 ? "+" : "";
+    const idxClass = c.index.toLowerCase();
+    const orbClass = c.orb_status.toLowerCase();
+    const sigClass = c.signal.toLowerCase();
+
+    tr.innerHTML = `
+      <td><strong>$${c.symbol}</strong></td>
+      <td><span class="index-badge ${idxClass}">${c.index}</span></td>
+      <td class="font-mono">$${c.price.toFixed(2)}</td>
+      <td class="font-mono ${chgClass}"><strong>${chgPrefix}${c.change_pct.toFixed(2)}%</strong></td>
+      <td class="font-mono">${c.rvol}x</td>
+      <td class="font-mono font-xs">${c.vwap_position.replace("_", " ")}</td>
+      <td><span class="orb-tag ${orbClass}">${c.orb_status.replace("_", " ")}</span></td>
+      <td><span class="type-badge ${sigClass}">${c.signal}</span></td>
+      <td><button class="btn-chart-pick" data-symbol="${c.symbol}"><i class="fa-solid fa-chart-line"></i> Chart</button></td>
+    `;
+    fragment.appendChild(tr);
+  });
+
+  screenerTableBody.appendChild(fragment);
+
+  // Attach chart pick buttons
+  screenerTableBody.querySelectorAll(".btn-chart-pick").forEach((btn) => {
+    btn.addEventListener("click", () => switchInstrument(btn.dataset.symbol));
+  });
 }
 
 function renderPositionsTable(positions, isStock) {
@@ -858,11 +961,41 @@ async function saveSettings() {
 // Event Listeners Setup
 document.addEventListener("DOMContentLoaded", () => {
   initChart();
+  populateSearchDatalist();
   renderInstrumentPills();
   connectWebSocket();
 
   tabForex.addEventListener("click", () => switchBotTab("forex"));
   tabStock.addEventListener("click", () => switchBotTab("stock"));
+
+  // Universe Selector Tabs
+  document.querySelectorAll(".univ-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      document.querySelectorAll(".univ-tab").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      activeStockUniverse = btn.dataset.univ;
+      renderInstrumentPills();
+    });
+  });
+
+  // Ticker Search Input
+  tickerSearchInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      const sym = tickerSearchInput.value.trim().toUpperCase();
+      if (sym) {
+        switchInstrument(sym);
+        tickerSearchInput.value = "";
+      }
+    }
+  });
+
+  tickerSearchInput.addEventListener("change", () => {
+    const sym = tickerSearchInput.value.trim().toUpperCase();
+    if (sym) {
+      switchInstrument(sym);
+      tickerSearchInput.value = "";
+    }
+  });
 
   btnToggleAgent.addEventListener("click", toggleAgentState);
   btnScanNow.addEventListener("click", triggerScanNow);

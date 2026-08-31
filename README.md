@@ -1,8 +1,8 @@
-# 🤖 Gemini Dual Autonome Trading-Plattform (Forex & US-Aktien / Alpaca)
+# 🤖 Gemini Dual Autonome Trading-Plattform (Forex, NASDAQ-100 & Dow Jones 30)
 
-Eine vollautonome, KI-gestützte Multi-Agenten-Trading-Plattform für den Devisenmarkt (Forex) und den US-Aktienmarkt (Equities & ETFs), entwickelt mit **Google Gemini**, **Alpaca Markets** und der **OANDA v20 REST & Streaming API**.
+Eine vollautonome, KI-gestützte Multi-Agenten-Trading-Plattform für den Devisenmarkt (Forex) und den gesamten US-Aktienmarkt (**NASDAQ-100**, **Dow Jones Industrial Average 30** und **Index-ETFs**), entwickelt mit **Google Gemini**, **Alpaca Markets** und der **OANDA v20 REST & Streaming API**.
 
-Das System kombiniert quantitative technische Analysen, VWAP-Benchmarks, Opening Range Breakouts (ORB), Marktstruktur-Erkennung (Smart Money Concepts / FVGs) und modernstes Prompting mit einem strikten Risikomanager und einem interaktiven Live-Web-Cockpit.
+Das System kombiniert quantitative technische Analysen, Multi-Symbol Intraday Screener, VWAP-Benchmarks, Opening Range Breakouts (ORB), Marktstruktur-Erkennung (Smart Money Concepts / FVGs) und modernstes Prompting mit einem strikten Risikomanager und einem interaktiven Live-Web-Cockpit.
 
 ---
 
@@ -14,8 +14,10 @@ Das System kombiniert quantitative technische Analysen, VWAP-Benchmarks, Opening
 - **Sessions:** London Session, New York Session, London/NY Overlap, Asian Session.
 - **Risikomanagement:** Lot-Sizing in Abhängigkeit vom SL-Abstand in Pips, Pip-Spread-Filter, Break-Even Nachzug bei 1R.
 
-### 2. 📈 Stock Intraday Agent (Alpaca / Simulator)
-- **Märkte:** US-Aktien & Index-ETFs (`AAPL`, `NVDA`, `TSLA`, `SPY`, `QQQ`, `MSFT`, `AMD`).
+### 2. 📈 Stock Intraday Agent (NASDAQ-100, Dow Jones 30 & Index-ETFs / Alpaca)
+- **Märkte:** Vollständiges **NASDAQ-100** Universum (AAPL, MSFT, NVDA, AMZN, GOOGL, META, TSLA, AVGO, COST, AMD, PLTR...), **Dow Jones 30 Blue Chips** (UNH, GS, HD, CAT, MCD, CRM, V, BA, IBM, JNJ, DIS, JPM, WMT...), sowie **Index-ETFs** (`SPY`, `QQQ`, `DIA`, `IWM`).
+- **Intraday Market Radar & Screener:** Kontinuierlicher Multi-Symbol Scan über 130+ Ticker mit Rangordnung nach RVOL (Relative Volume), ORB Breakouts, VWAP-Trend und RSI.
+- **Live Ticker Search:** Sofortige Ticker-Suche & Autocomplete für beliebige US-Aktien im 0ms-Schnellwechsel.
 - **Analyse-Fokus:** **VWAP** (Volume-Weighted Average Price & Standardabweichungsbänder), **Opening Range Breakout (ORB 15m)**, **RVOL** (Relative Volume), EMA-Momentum, RSI, MACD, ATR in US-Dollar.
 - **Sessions:** US Pre-Market, US Opening Drive (RTH Open), US Mid-Day, US Power Hour, US After-Hours.
 - **Risikomanagement:** Exaktes Position Sizing in Shares bezogen auf % Risiko des USD-Portfolios, Cent-Spread-Filter, Circuit Breaker.

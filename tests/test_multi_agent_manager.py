@@ -5,6 +5,8 @@ from agent.core.multi_agent_manager import MultiAgentManager
 @pytest.mark.asyncio
 async def test_multi_agent_manager_lifecycle():
     manager = MultiAgentManager()
+    await manager.forex_agent.set_mode("simulator")
+    await manager.stock_agent.set_mode("simulator")
     await manager.initialize()
 
     # 1. Check all telemetry

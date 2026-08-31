@@ -968,3 +968,151 @@ body.dark-theme {
   justify-content: flex-end;
   gap: 10px;
 }
+
+/* ==========================================================================
+   Universe Selector & Live Ticker Search
+   ========================================================================== */
+.universe-selector {
+  display: flex;
+  gap: 4px;
+  background: rgba(0, 0, 0, 0.35);
+  padding: 3px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-color);
+}
+
+.univ-tab {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.univ-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.univ-tab.active {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.25), rgba(0, 242, 254, 0.25));
+  color: #34d399;
+  border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.search-box-container {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  padding: 4px 10px;
+  position: relative;
+}
+
+.search-icon {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+#tickerSearchInput {
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  width: 140px;
+  outline: none;
+  text-transform: uppercase;
+}
+
+#tickerSearchInput::placeholder {
+  color: var(--text-muted);
+  font-family: var(--font-main);
+  font-size: 11px;
+  text-transform: none;
+}
+
+#tickerSearchInput:focus {
+  width: 180px;
+  transition: width 0.2s ease;
+}
+
+/* ==========================================================================
+   Market Radar Screener Card
+   ========================================================================== */
+.screener-card {
+  margin-top: 4px;
+}
+
+.index-badge {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+
+.index-badge.nasdaq {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+  border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.index-badge.dow {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.index-badge.etf {
+  background: rgba(139, 92, 246, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(139, 92, 246, 0.3);
+}
+
+.orb-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.orb-tag.breakout_high {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--accent-emerald);
+}
+
+.orb-tag.breakdown_low {
+  background: rgba(244, 63, 94, 0.15);
+  color: var(--accent-rose);
+}
+
+.orb-tag.inside {
+  color: var(--text-muted);
+}
+
+.btn-chart-pick {
+  background: rgba(0, 242, 254, 0.1);
+  border: 1px solid rgba(0, 242, 254, 0.3);
+  color: var(--accent-cyan);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-chart-pick:hover {
+  background: var(--accent-cyan);
+  color: #000;
+}

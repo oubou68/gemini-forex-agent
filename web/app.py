@@ -97,6 +97,17 @@ async def get_candles(bot_type: str = "forex", instrument: Optional[str] = None,
     return [c.model_dump() for c in candles]
 
 
+@app.get("/api/stock/universe")
+async def get_stock_universe():
+    return agent_manager.stock_agent.get_universe_catalog()
+
+
+@app.get("/api/stock/screener")
+async def get_stock_screener():
+    candidates = await agent_manager.stock_agent.screen_market_universe()
+    return [c.model_dump() for c in candidates]
+
+
 @app.post("/api/control/start")
 async def start_agent(payload: dict = Body(default={})):
     bot = payload.get("bot_type", "all")

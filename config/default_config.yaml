@@ -1,9 +1,9 @@
 app:
-  name: "Gemini Dual Autonomous Trading Agent (Forex & Stocks)"
-  version: "2.0.0"
+  name: "Gemini Dual Autonomous Trading Agent (Forex, NASDAQ & Dow Jones)"
+  version: "2.1.0"
 
 forex_trading:
-  # Monitored currency pairs for intraday scanning
+  # Monitored currency pairs for intraday scanning (OANDA)
   instruments:
     - "EUR_USD"
     - "GBP_USD"
@@ -19,25 +19,182 @@ forex_trading:
   strategy_mode: "gemini_hybrid"
 
 stock_trading:
-  # Monitored US equities & ETFs for intraday scanning (Alpaca)
+  # Default active watchlist
+  default_symbol: "AAPL"
   symbols:
     - "AAPL"
     - "NVDA"
     - "TSLA"
+    - "MSFT"
+    - "AMZN"
+    - "GOOGL"
+    - "META"
+    - "AMD"
     - "SPY"
     - "QQQ"
+    - "DIA"
+  
+  # Universe Screening Configuration
+  universe_scanner_enabled: true
+  scan_interval_sec: 10
+  max_screened_candidates: 8
+  
+  # Complete Dow Jones Industrial Average (DJIA 30)
+  dow_jones_30:
+    - "AAPL"
+    - "AMGN"
+    - "AMZN"
+    - "AXP"
+    - "BA"
+    - "CAT"
+    - "CRM"
+    - "CSCO"
+    - "CVX"
+    - "DIS"
+    - "DOW"
+    - "GS"
+    - "HD"
+    - "HON"
+    - "IBM"
+    - "INTC"
+    - "JNJ"
+    - "JPM"
+    - "KO"
+    - "MCD"
+    - "MMM"
+    - "MRK"
     - "MSFT"
+    - "NKE"
+    - "NVDA"
+    - "PG"
+    - "TRV"
+    - "UNH"
+    - "V"
+    - "VZ"
+    - "WMT"
+
+  # Complete NASDAQ-100 Universe
+  nasdaq_100:
+    - "AAPL"
+    - "ABNB"
+    - "ADBE"
+    - "ADI"
+    - "ADP"
+    - "ADSK"
+    - "AEP"
+    - "AMAT"
     - "AMD"
+    - "AMGN"
+    - "AMZN"
+    - "ANSS"
+    - "ARM"
+    - "ASML"
+    - "AVGO"
+    - "AZN"
+    - "BIIB"
+    - "BKNG"
+    - "BKR"
+    - "CCEP"
+    - "CDNS"
+    - "CDW"
+    - "CEG"
+    - "CHTR"
+    - "CPRT"
+    - "CRWD"
+    - "CSCO"
+    - "CSGP"
+    - "CSX"
+    - "CTAS"
+    - "CTSH"
+    - "DASH"
+    - "DDOG"
+    - "DLTR"
+    - "DXCM"
+    - "EA"
+    - "EXC"
+    - "FANG"
+    - "FAST"
+    - "FTNT"
+    - "GEHC"
+    - "GFS"
+    - "GILD"
+    - "GOOG"
+    - "GOOGL"
+    - "HON"
+    - "IDXX"
+    - "ILMN"
+    - "INTC"
+    - "INTU"
+    - "ISRG"
+    - "KDP"
+    - "KHC"
+    - "KLAC"
+    - "LIN"
+    - "LRCX"
+    - "LULU"
+    - "MAR"
+    - "MCHP"
+    - "MDB"
+    - "MDLZ"
+    - "MELI"
+    - "META"
+    - "MNST"
+    - "MRNA"
+    - "MRVL"
+    - "MSFT"
+    - "MU"
+    - "NFLX"
+    - "NVDA"
+    - "NXPI"
+    - "ODFL"
+    - "ON"
+    - "ORLY"
+    - "PANW"
+    - "PAYX"
+    - "PCAR"
+    - "PDD"
+    - "PEP"
+    - "PLTR"
+    - "PYPL"
+    - "QCOM"
+    - "REGN"
+    - "ROP"
+    - "ROST"
+    - "SBUX"
+    - "SIRI"
+    - "SMCI"
+    - "SNPS"
+    - "TEAM"
+    - "TMUS"
+    - "TSLA"
+    - "TTD"
+    - "TTWO"
+    - "TXN"
+    - "VRSK"
+    - "VRTX"
+    - "WBD"
+    - "WDAY"
+    - "XEL"
+    - "ZS"
+
+  # Major US Benchmark Index ETFs
+  index_etfs:
+    - "SPY"
+    - "QQQ"
+    - "DIA"
+    - "IWM"
+    - "SMH"
+    - "XLK"
+    - "XLF"
+    - "XLE"
   
   execution_timeframe: "M5"
   context_timeframes:
     - "M15"
     - "H1"
-  scan_interval_sec: 10
   strategy_mode: "vwap_orb_momentum"
-  
+
 trading:
-  # Backwards compatibility
   instruments:
     - "EUR_USD"
     - "GBP_USD"
@@ -56,7 +213,7 @@ risk:
   max_open_positions: 3          # Maximum concurrent open trades
   max_daily_drawdown_pct: 3.0    # Circuit breaker: halt trading if daily DD >= 3%
   max_spread_pips: 2.5           # Maximum allowable spread in pips (Forex)
-  max_spread_dollars: 0.20       # Maximum allowable spread in USD (Stocks)
+  max_spread_dollars: 0.35       # Maximum allowable spread in USD (Stocks)
   min_risk_reward_ratio: 1.5     # Minimum RRR (TP / SL)
   default_atr_multiplier_sl: 1.5 # SL = Entry +/- (ATR * 1.5)
   default_atr_multiplier_tp: 2.5 # TP = Entry +/- (ATR * 2.5)

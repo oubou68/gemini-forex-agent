@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import math
+import random
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Callable
 
@@ -17,7 +18,7 @@ from agent.core.models import (
     Candle, MarketPrice, IndicatorValues, MarketStructure,
     GeminiTradeDecision, TradeAction, Position, OrderRequest,
     PositionDirection, PositionStatus, AccountSummary,
-    TradePerformanceStats, AgentTelemetry
+    TradePerformanceStats, AgentTelemetry, StockScreenerCandidate
 )
 from config.settings import settings, yaml_config
 
@@ -26,20 +27,46 @@ logger = logging.getLogger(__name__)
 
 class StockTradingAgentOrchestrator:
     """
-    Zentraler Orchestrator des autonomen Gemini Intraday-Aktien-Trading-Agenten (Alpaca).
-    Koordiniert Marktscan für US-Aktien/ETFs (AAPL, NVDA, TSLA, SPY, etc.),
-    VWAP & ORB Indikatorberechnung, Gemini KI-Entscheidungen,
-    Position Sizing in Shares, Orderausführung und Web-Telemetrie.
+    Zentraler Orchestrator des autonomen Gemini Intraday-Aktien-Trading-Agenten.
+    Unterstützt das gesamte NASDAQ-100 Universum, den Dow Jones Industrial Average (DJIA 30)
+    sowie führende US-Index-ETFs (SPY, QQQ, DIA, IWM) mit Multi-Symbol Intraday Screener,
+    VWAP & ORB Indikatorberechnung, Gemini KI-Entscheidungen und autonomer Orderausführung.
     """
 
     def __init__(self):
         self.is_running: bool = False
         self.mode: str = settings.ALPACA_ENVIRONMENT.lower()  # "simulator", "paper", "live"
         self.current_symbol: str = settings.DEFAULT_STOCK_SYMBOL
-        self.monitored_symbols: List[str] = yaml_config.get("stock_trading", {}).get("symbols", [
-            "AAPL", "NVDA", "TSLA", "SPY", "QQQ", "MSFT", "AMD"
+        
+        # Universen aus Config laden
+        stock_cfg = yaml_config.get("stock_trading", {})
+        self.watchlist: List[str] = stock_cfg.get("symbols", [
+            "AAPL", "NVDA", "TSLA", "MSFT", "AMZN", "GOOGL", "META", "AMD", "SPY", "QQQ", "DIA"
         ])
+        self.dow_jones_30: List[str] = stock_cfg.get("dow_jones_30", [
+            "AAPL", "AMGN", "AMZN", "AXP", "BA", "CAT", "CRM", "CSCO", "CVX", "DIS",
+            "DOW", "GS", "HD", "HON", "IBM", "INTC", "JNJ", "JPM", "KO", "MCD",
+            "MMM", "MRK", "MSFT", "NKE", "NVDA", "PG", "TRV", "UNH", "V", "VZ", "WMT"
+        ])
+        self.nasdaq_100: List[str] = stock_cfg.get("nasdaq_100", [
+            "AAPL", "ABNB", "ADBE", "ADI", "ADP", "ADSK", "AEP", "AMAT", "AMD", "AMGN",
+            "AMZN", "ANSS", "ARM", "ASML", "AVGO", "AZN", "BIIB", "BKNG", "BKR", "CCEP",
+            "CDNS", "CDW", "CEG", "CHTR", "CPRT", "CRWD", "CSCO", "CSGP", "CSX", "CTAS",
+            "CTSH", "DASH", "DDOG", "DLTR", "DXCM", "EA", "EXC", "FANG", "FAST", "FTNT",
+            "GEHC", "GFS", "GILD", "GOOG", "GOOGL", "HON", "IDXX", "ILMN", "INTC", "INTU",
+            "ISRG", "KDP", "KHC", "KLAC", "LIN", "LRCX", "LULU", "MAR", "MCHP", "MDB",
+            "MDLZ", "MELI", "META", "MNST", "MRNA", "MRVL", "MSFT", "MU", "NFLX", "NVDA",
+            "NXPI", "ODFL", "ON", "ORLY", "PANW", "PAYX", "PCAR", "PDD", "PEP", "PLTR",
+            "PYPL", "QCOM", "REGN", "ROP", "ROST", "SBUX", "SIRI", "SMCI", "SNPS", "TEAM",
+            "TMUS", "TSLA", "TTD", "TTWO", "TXN", "VRSK", "VRTX", "WBD", "WDAY", "XEL", "ZS"
+        ])
+        self.index_etfs: List[str] = stock_cfg.get("index_etfs", [
+            "SPY", "QQQ", "DIA", "IWM", "SMH", "XLK", "XLF", "XLE"
+        ])
+
         self.scan_interval: int = settings.STOCK_SCAN_INTERVAL_SECONDS
+        self.screener_candidates: List[StockScreenerCandidate] = []
+        self._universe_scan_counter: int = 0
 
         # Subkomponenten initialisieren
         self.broker: BaseBroker = self._create_broker()
@@ -57,7 +84,7 @@ class StockTradingAgentOrchestrator:
             risk_per_trade_pct=risk_cfg.get("risk_per_trade_pct", settings.STOCK_RISK_PERCENT_PER_TRADE),
             max_open_positions=risk_cfg.get("max_open_positions", settings.STOCK_MAX_OPEN_POSITIONS),
             max_daily_drawdown_pct=risk_cfg.get("max_daily_drawdown_pct", settings.STOCK_MAX_DAILY_DRAWDOWN_PERCENT),
-            max_spread_pips=risk_cfg.get("max_spread_dollars", 0.25),
+            max_spread_pips=risk_cfg.get("max_spread_dollars", 0.35),
             min_risk_reward_ratio=risk_cfg.get("min_risk_reward_ratio", 1.5),
             confidence_threshold=yaml_config.get("gemini", {}).get("confidence_threshold", 65.0),
             breakeven_trigger_r=risk_cfg.get("breakeven_trigger_r", 1.0)
@@ -83,6 +110,16 @@ class StockTradingAgentOrchestrator:
         else:
             logger.info("Initialisiere Stock Simulator Broker (USD)...")
             return StockSimulatorBroker(initial_balance=100000.0, currency="USD")
+
+    def get_universe_catalog(self) -> Dict[str, Any]:
+        """Gibt die vollständigen Index-Universen für UI und API zurück."""
+        return {
+            "watchlist": self.watchlist,
+            "dow_jones_30": self.dow_jones_30,
+            "nasdaq_100": self.nasdaq_100,
+            "index_etfs": self.index_etfs,
+            "total_symbols_count": len(set(self.watchlist + self.dow_jones_30 + self.nasdaq_100 + self.index_etfs))
+        }
 
     def log(self, message: str, level: str = "INFO", category: str = "SYSTEM"):
         timestamp = datetime.utcnow().strftime("%H:%M:%S")
@@ -126,13 +163,14 @@ class StockTradingAgentOrchestrator:
 
     async def initialize(self):
         await self.broker.initialize()
-        self.log("Stock Intraday Agent Orchestrator erfolgreich initialisiert.", "INFO", "SYSTEM")
+        await self.screen_market_universe(limit=8)
+        self.log("Stock Intraday Agent Orchestrator (NASDAQ & Dow Jones) erfolgreich initialisiert.", "INFO", "SYSTEM")
 
     async def start(self):
         if self.is_running:
             return
         self.is_running = True
-        self.log("Autonomer Aktien-Trading-Loop GESTARTET.", "INFO", "SYSTEM")
+        self.log("Autonomer Aktien-Trading-Loop (NASDAQ & Dow Jones) GESTARTET.", "INFO", "SYSTEM")
         self._loop_task = asyncio.create_task(self._orchestrator_loop())
         await self.broadcast_telemetry()
 
@@ -148,13 +186,18 @@ class StockTradingAgentOrchestrator:
     async def _orchestrator_loop(self):
         while self.is_running:
             try:
-                # Scanne das primäre Aktien-Symbol
+                # 1. Scanne das primäre Aktien-Symbol
                 await self.run_scan_cycle(self.current_symbol)
 
-                # Checke offene Positionen auf Trailing Stop / BE
+                # 2. Multi-Symbol Universum Screener (NASDAQ + Dow Jones) alle 2 Zyklen
+                self._universe_scan_counter += 1
+                if self._universe_scan_counter % 2 == 0:
+                    await self.screen_market_universe(limit=8)
+
+                # 3. Checke offene Positionen auf Trailing Stop / BE
                 await self._manage_open_positions()
 
-                # Broadcast Live State
+                # 4. Broadcast Live State
                 await self.broadcast_telemetry()
             except asyncio.CancelledError:
                 break
@@ -162,6 +205,91 @@ class StockTradingAgentOrchestrator:
                 self.log(f"Fehler im Stock-Orchestrator-Loop: {e}", "ERROR", "SYSTEM")
 
             await asyncio.sleep(self.scan_interval)
+
+    async def screen_market_universe(self, limit: int = 8) -> List[StockScreenerCandidate]:
+        """
+        Scavenger / Intraday Screener für das gesamte NASDAQ-100 und Dow Jones Universum.
+        Filtert nach Relative Volume (RVOL > 1.2), ORB Breakouts, VWAP-Trend und RSI.
+        """
+        all_symbols = list(set(self.watchlist + self.dow_jones_30[:15] + self.nasdaq_100[:25] + self.index_etfs))
+        # Nimm eine rotierende Stichprobe für schnelle Scan-Performance
+        sampled_symbols = random.sample(all_symbols, min(len(all_symbols), 18))
+        if self.current_symbol not in sampled_symbols:
+            sampled_symbols.insert(0, self.current_symbol)
+
+        candidates: List[StockScreenerCandidate] = []
+
+        for sym in sampled_symbols:
+            try:
+                price = await self.broker.get_current_price(sym)
+                candles = await self.broker.get_candles(sym, granularity="M5", count=60)
+                if not candles or len(candles) < 20:
+                    continue
+
+                ind = self.indicator_engine.calculate_indicators(candles, orb_bars=3)
+                
+                # Bestimme Index-Zugehörigkeit
+                idx = "NASDAQ" if sym in self.nasdaq_100 else ("DOW" if sym in self.dow_jones_30 else "ETF")
+
+                # Berechne Intraday Change %
+                first_open = candles[0].open
+                change_pct = round(((price.mid - first_open) / first_open) * 100.0, 2)
+
+                # VWAP Position
+                vwap_pos = "AT_VWAP"
+                if ind.vwap:
+                    if price.mid > ind.vwap * 1.002:
+                        vwap_pos = "ABOVE_VWAP"
+                    elif price.mid < ind.vwap * 0.998:
+                        vwap_pos = "BELOW_VWAP"
+
+                # ORB Status
+                orb_stat = "INSIDE"
+                if ind.orb_high and price.mid > ind.orb_high:
+                    orb_stat = "BREAKOUT_HIGH"
+                elif ind.orb_low and price.mid < ind.orb_low:
+                    orb_stat = "BREAKDOWN_LOW"
+
+                # Scoring (0 - 100) basierend auf RVOL, Trend und ORB
+                score = 50.0
+                signal = "HOLD"
+                rvol_val = ind.rvol or 1.0
+
+                if rvol_val >= 1.5:
+                    score += 15
+                if orb_stat == "BREAKOUT_HIGH" and vwap_pos == "ABOVE_VWAP":
+                    score += 25
+                    signal = "BUY"
+                elif orb_stat == "BREAKDOWN_LOW" and vwap_pos == "BELOW_VWAP":
+                    score += 25
+                    signal = "SELL"
+                elif ind.trend_bias == "BULLISH" and (ind.rsi_14 or 50) < 65:
+                    score += 10
+                    signal = "BUY"
+                elif ind.trend_bias == "BEARISH" and (ind.rsi_14 or 50) > 35:
+                    score += 10
+                    signal = "SELL"
+
+                cand = StockScreenerCandidate(
+                    symbol=sym,
+                    index=idx,
+                    price=price.mid,
+                    change_pct=change_pct,
+                    rvol=round(rvol_val, 2),
+                    vwap_position=vwap_pos,
+                    orb_status=orb_stat,
+                    rsi=round(ind.rsi_14 or 50.0, 1),
+                    score=round(min(99.0, max(10.0, score)), 1),
+                    signal=signal
+                )
+                candidates.append(cand)
+            except Exception:
+                continue
+
+        # Sortiere nach höchstem Score
+        candidates.sort(key=lambda x: x.score, reverse=True)
+        self.screener_candidates = candidates[:limit]
+        return self.screener_candidates
 
     def calculate_shares_size(self, equity: float, entry_price: float, stop_loss_price: float, risk_pct: float = 1.0, max_capital_pct: float = 0.50) -> int:
         """
@@ -174,7 +302,7 @@ class StockTradingAgentOrchestrator:
         risk_per_share = abs(entry_price - stop_loss_price)
         shares = math.floor(risk_amount / max(0.05, risk_per_share))
         
-        # Max Buying-Power Schutz (maximal max_capital_pct des Gesamtkapitals in eine einzelne Position)
+        # Max Buying-Power Schutz
         max_shares_capital = math.floor((equity * max_capital_pct) / entry_price)
         final_shares = max(1, min(shares, max_shares_capital if max_shares_capital > 0 else shares))
         return final_shares
@@ -362,5 +490,6 @@ class StockTradingAgentOrchestrator:
             open_positions=open_positions,
             account=account,
             stats=stats,
-            recent_logs=self.recent_logs[-30:]
+            recent_logs=self.recent_logs[-30:],
+            screener_candidates=self.screener_candidates
         )

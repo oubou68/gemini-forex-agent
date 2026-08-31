@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Gemini Multi-Agent Intraday Trading Platform (Forex & Stocks)</title>
+  <title>Gemini Multi-Agent Intraday Trading Platform (Forex, NASDAQ & Dow Jones)</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -20,7 +20,7 @@
         <div class="logo-icon"><i class="fa-solid fa-brain-circuit"></i></div>
         <div class="logo-text">
           <h1>GEMINI QUANT <span>AI AGENTS</span></h1>
-          <span class="version-tag">Dual Engine • Forex & Alpaca Stocks</span>
+          <span class="version-tag">Dual Engine • Forex, NASDAQ & Dow Jones</span>
         </div>
       </div>
 
@@ -33,12 +33,27 @@
         </button>
         <button class="bot-tab" data-bot="stock" id="tabStock">
           <i class="fa-solid fa-arrow-trend-up"></i>
-          <span>Stock Agent (Alpaca)</span>
+          <span>Stock Agent (NASDAQ & Dow Jones)</span>
           <span class="bot-status-indicator active" id="dotStockMini"></span>
         </button>
       </div>
 
-      <!-- Instrument Pills (Dynamic based on selected Bot) -->
+      <!-- Stock Universe Category Tabs (Visible when Stock bot is active) -->
+      <div class="universe-selector" id="universeSelector" style="display: none;">
+        <button class="univ-tab active" data-univ="watchlist">🔥 Watchlist</button>
+        <button class="univ-tab" data-univ="nasdaq">⚡ NASDAQ-100</button>
+        <button class="univ-tab" data-univ="dow">🏛️ Dow Jones 30</button>
+        <button class="univ-tab" data-univ="etf">📈 Index ETFs</button>
+      </div>
+
+      <!-- Search Box & Autocomplete -->
+      <div class="search-box-container" id="searchBoxContainer" style="display: none;">
+        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+        <input type="text" id="tickerSearchInput" placeholder="Ticker (z.B. AMZN, DIS, UNH, QQQ...)" list="allTickersList" autocomplete="off">
+        <datalist id="allTickersList"></datalist>
+      </div>
+
+      <!-- Instrument Pills (Dynamic based on selected Bot & Universe) -->
       <div class="instrument-selector" id="instrumentSelector">
         <!-- Injected via JS based on active bot -->
       </div>
@@ -186,6 +201,39 @@
             <span class="ind-val" id="valSlot6">Kein Gap</span>
             <span class="ind-sub" id="subSlot6">Swings: -- / --</span>
           </div>
+        </div>
+      </div>
+
+      <!-- Market Universe Radar & Screener Card (Stocks) -->
+      <div class="card screener-card" id="screenerCard" style="display: none;">
+        <div class="card-header">
+          <div class="card-title-group">
+            <i class="fa-solid fa-radar"></i>
+            <h2>NASDAQ & Dow Jones Market Radar (Live Screener)</h2>
+          </div>
+          <span class="live-dot-container"><span class="status-dot mini-pulse"></span> SCANNING 130+ SYMBOLS</span>
+        </div>
+        <div class="table-responsive">
+          <table class="data-table" id="screenerTable">
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Index</th>
+                <th>Kurs</th>
+                <th>Change %</th>
+                <th>RVOL</th>
+                <th>VWAP Pos</th>
+                <th>ORB Status</th>
+                <th>Signal</th>
+                <th>Aktion</th>
+              </tr>
+            </thead>
+            <tbody id="screenerTableBody">
+              <tr>
+                <td colspan="9" class="empty-state">Scanne NASDAQ & Dow Jones Universum...</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
       </div>
     </div>
