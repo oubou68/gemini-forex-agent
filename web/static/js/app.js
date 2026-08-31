@@ -61,6 +61,8 @@ let vwapSeries = null;
 let chartResizeObserver = null;
 
 // DOM Elements
+const btnThemeToggle = document.getElementById("btnThemeToggle");
+const themeToggleIcon = document.getElementById("themeToggleIcon");
 const tabForex = document.getElementById("tabForex");
 const tabStock = document.getElementById("tabStock");
 const dotForexMini = document.getElementById("dotForexMini");
@@ -161,48 +163,92 @@ const selectAlpacaMode = document.getElementById("selectAlpacaMode");
 const inputAlpacaKey = document.getElementById("inputAlpacaKey");
 const inputAlpacaSecret = document.getElementById("inputAlpacaSecret");
 
+// Theme Support (Light & Friendly / Dark)
+function isDarkThemeActive() {
+  return document.body.classList.contains("dark-theme");
+}
+
+function applyChartTheme(isDark) {
+  if (!chart) return;
+  chart.applyOptions({
+    layout: {
+      background: { color: isDark ? "#161f30" : "#ffffff" },
+      textColor: isDark ? "#94a3b8" : "#475569",
+    },
+    grid: {
+      vertLines: { color: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.04)" },
+      horzLines: { color: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.04)" },
+    },
+    rightPriceScale: {
+      borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "#e2e8f0",
+    },
+    timeScale: {
+      borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "#e2e8f0",
+    }
+  });
+}
+
+function toggleTheme() {
+  const wasDark = isDarkThemeActive();
+  if (wasDark) {
+    document.body.classList.remove("dark-theme");
+    document.body.classList.add("light-theme");
+    if (themeToggleIcon) themeToggleIcon.className = "fa-solid fa-moon";
+    localStorage.setItem("theme", "light");
+    applyChartTheme(false);
+  } else {
+    document.body.classList.remove("light-theme");
+    document.body.classList.add("dark-theme");
+    if (themeToggleIcon) themeToggleIcon.className = "fa-solid fa-sun";
+    localStorage.setItem("theme", "dark");
+    applyChartTheme(true);
+  }
+}
+
 // Initialize Lightweight Charts
 function initChart() {
   const chartContainer = document.getElementById("tradingviewChart");
   if (!chartContainer) return;
   chartContainer.innerHTML = "";
 
+  const isDark = isDarkThemeActive();
+
   chart = LightweightCharts.createChart(chartContainer, {
     layout: {
-      background: { color: "#161f30" },
-      textColor: "#94a3b8",
+      background: { color: isDark ? "#161f30" : "#ffffff" },
+      textColor: isDark ? "#94a3b8" : "#475569",
       fontSize: 11,
       fontFamily: "'JetBrains Mono', monospace",
     },
     grid: {
-      vertLines: { color: "rgba(255, 255, 255, 0.04)" },
-      horzLines: { color: "rgba(255, 255, 255, 0.04)" },
+      vertLines: { color: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.04)" },
+      horzLines: { color: isDark ? "rgba(255, 255, 255, 0.04)" : "rgba(0, 0, 0, 0.04)" },
     },
     crosshair: {
       mode: LightweightCharts.CrosshairMode.Normal,
     },
     rightPriceScale: {
-      borderColor: "rgba(255, 255, 255, 0.08)",
+      borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "#e2e8f0",
       autoScale: true,
     },
     timeScale: {
-      borderColor: "rgba(255, 255, 255, 0.08)",
+      borderColor: isDark ? "rgba(255, 255, 255, 0.08)" : "#e2e8f0",
       timeVisible: true,
       secondsVisible: false,
     },
   });
 
   candleSeries = chart.addCandlestickSeries({
-    upColor: "#10b981",
-    downColor: "#f43f5e",
-    borderDownColor: "#f43f5e",
-    borderUpColor: "#10b981",
-    wickDownColor: "#f43f5e",
-    wickUpColor: "#10b981",
+    upColor: "#059669",
+    downColor: "#e11d48",
+    borderDownColor: "#e11d48",
+    borderUpColor: "#059669",
+    wickDownColor: "#e11d48",
+    wickUpColor: "#059669",
   });
 
   volumeSeries = chart.addHistogramSeries({
-    color: "rgba(59, 130, 246, 0.3)",
+    color: "rgba(2, 132, 199, 0.3)",
     priceFormat: { type: "volume" },
     priceScaleId: "",
   });
@@ -211,12 +257,12 @@ function initChart() {
   });
 
   // EMAs
-  ema9Series = chart.addLineSeries({ color: "#3b82f6", lineWidth: 1.5, title: "EMA 9" });
-  ema21Series = chart.addLineSeries({ color: "#f59e0b", lineWidth: 1.5, title: "EMA 21" });
-  ema50Series = chart.addLineSeries({ color: "#8b5cf6", lineWidth: 1.5, title: "EMA 50" });
+  ema9Series = chart.addLineSeries({ color: "#2563eb", lineWidth: 1.5, title: "EMA 9" });
+  ema21Series = chart.addLineSeries({ color: "#d97706", lineWidth: 1.5, title: "EMA 21" });
+  ema50Series = chart.addLineSeries({ color: "#7c3aed", lineWidth: 1.5, title: "EMA 50" });
 
   // VWAP Series for Stocks
-  vwapSeries = chart.addLineSeries({ color: "#00f2fe", lineWidth: 2, title: "VWAP" });
+  vwapSeries = chart.addLineSeries({ color: "#0284c7", lineWidth: 2, title: "VWAP" });
 
   // GPU & Container ResizeObserver for zero-lag responsiveness
   if (window.ResizeObserver) {
@@ -269,7 +315,7 @@ function processCandlesData(candles, botType) {
     volumeData[i] = {
       time: timestamp,
       value: c.volume || 10,
-      color: isOpenCloseUp ? "rgba(16, 185, 129, 0.25)" : "rgba(244, 63, 94, 0.25)",
+      color: isOpenCloseUp ? "rgba(5, 150, 105, 0.3)" : "rgba(225, 29, 72, 0.3)",
     };
   }
 
@@ -414,9 +460,9 @@ function renderInstrumentPills() {
     list = FOREX_INSTRUMENTS;
   } else {
     if (activeStockUniverse === "nasdaq") {
-      list = NASDAQ_100.slice(0, 24); // Show top NASDAQ leaders as quick pills
+      list = NASDAQ_100.slice(0, 24);
     } else if (activeStockUniverse === "dow") {
-      list = DOW_JONES_30; // Show all 30 Dow Jones blue chips
+      list = DOW_JONES_30;
     } else if (activeStockUniverse === "etf") {
       list = INDEX_ETFS;
     } else {
@@ -426,7 +472,6 @@ function renderInstrumentPills() {
 
   const current = botStates[activeBot].instrument;
 
-  // Make sure current symbol is included in the pills if not present
   if (activeBot === "stock" && !list.includes(current)) {
     list = [current, ...list];
   }
@@ -496,9 +541,9 @@ function switchBotTab(targetBot) {
     screenerCard.style.display = "none";
 
     chartBotTag.textContent = "FOREX";
-    chartBotTag.style.background = "rgba(59, 130, 246, 0.2)";
-    chartBotTag.style.color = "var(--accent-blue)";
-    chartBotTag.style.borderColor = "rgba(59, 130, 246, 0.4)";
+    chartBotTag.style.background = "#e0f2fe";
+    chartBotTag.style.color = "#0284c7";
+    chartBotTag.style.borderColor = "#bae6fd";
     indMatrixTitle.textContent = "Quant & Forex Indikatoren";
     aiBrainTitle.textContent = "Gemini Forex Decision Engine";
     logHeaderTitle.textContent = "Forex Agent Audit & Activity Log";
@@ -510,9 +555,9 @@ function switchBotTab(targetBot) {
     screenerCard.style.display = "flex";
 
     chartBotTag.textContent = "NASDAQ & DOW JONES";
-    chartBotTag.style.background = "rgba(16, 185, 129, 0.2)";
-    chartBotTag.style.color = "var(--accent-emerald)";
-    chartBotTag.style.borderColor = "rgba(16, 185, 129, 0.4)";
+    chartBotTag.style.background = "#ecfdf5";
+    chartBotTag.style.color = "#059669";
+    chartBotTag.style.borderColor = "#a7f3d0";
     indMatrixTitle.textContent = "VWAP, ORB & Equities Matrix";
     aiBrainTitle.textContent = "Gemini Stock Decision Engine (US Equities)";
     logHeaderTitle.textContent = "Stock Agent Audit & Screener Log";
@@ -960,10 +1005,26 @@ async function saveSettings() {
 
 // Event Listeners Setup
 document.addEventListener("DOMContentLoaded", () => {
+  // Load saved theme preference if any
+  const savedTheme = localStorage.getItem("theme");
+  if (savedTheme === "dark") {
+    document.body.classList.remove("light-theme");
+    document.body.classList.add("dark-theme");
+    if (themeToggleIcon) themeToggleIcon.className = "fa-solid fa-sun";
+  } else {
+    document.body.classList.remove("dark-theme");
+    document.body.classList.add("light-theme");
+    if (themeToggleIcon) themeToggleIcon.className = "fa-solid fa-moon";
+  }
+
   initChart();
   populateSearchDatalist();
   renderInstrumentPills();
   connectWebSocket();
+
+  if (btnThemeToggle) {
+    btnThemeToggle.addEventListener("click", toggleTheme);
+  }
 
   tabForex.addEventListener("click", () => switchBotTab("forex"));
   tabStock.addEventListener("click", () => switchBotTab("stock"));
