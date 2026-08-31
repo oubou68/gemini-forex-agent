@@ -979,6 +979,44 @@ body {
   font-size: 12px;
 }
 
+tr.pos-row {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+tr.pos-row:hover td {
+  background: var(--table-hover-bg);
+}
+
+.pos-symbol-btn {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-primary);
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-main);
+  font-size: 12px;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.pos-symbol-btn:hover {
+  background: var(--accent-blue);
+  color: #ffffff;
+  border-color: var(--accent-blue);
+  transform: translateY(-1px);
+  box-shadow: 0 3px 8px rgba(2, 132, 199, 0.28);
+}
+
+.pos-symbol-btn i {
+  font-size: 10px;
+  opacity: 0.75;
+}
+
 .type-badge {
   font-size: 10px;
   font-weight: 700;

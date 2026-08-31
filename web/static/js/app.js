@@ -494,14 +494,22 @@ function renderInstrumentPills() {
 
 // Instant Instrument Switcher with 0ms Perceived Latency
 function switchInstrument(symbol) {
-  symbol = symbol.replace("/", "").replace("_", "").replace("$", "").toUpperCase().trim();
+  if (!symbol) return;
+  const isStock = activeBot === "stock";
+  if (isStock) {
+    symbol = symbol.replace("/", "").replace("_", "").replace("$", "").toUpperCase().trim();
+  } else {
+    symbol = symbol.replace("/", "_").replace("$", "").toUpperCase().trim();
+    if (symbol.length === 6 && !symbol.includes("_")) {
+      symbol = symbol.slice(0, 3) + "_" + symbol.slice(3);
+    }
+  }
   if (!symbol) return;
 
   const prevSymbol = botStates[activeBot].instrument;
   if (prevSymbol === symbol && currentRenderedKey === `${activeBot}:${symbol}`) return;
 
   botStates[activeBot].instrument = symbol;
-  const isStock = activeBot === "stock";
 
   // 1. Instant Tactile Feedback: Update Pills
   renderInstrumentPills();
@@ -856,15 +864,23 @@ function renderPositionsTable(positions, isStock) {
   const fragment = document.createDocumentFragment();
   positions.forEach((p) => {
     const tr = document.createElement("tr");
+    tr.className = "pos-row";
+    tr.dataset.symbol = p.instrument;
     const pnl = p.unrealized_pnl || 0.0;
     const pnlClass = pnl >= 0 ? "positive" : "negative";
     const prefix = pnl >= 0 ? "+" : "";
     const pnlFormatted = isStock ? `${prefix}$${formatCurrency(pnl)}` : `${prefix}${formatCurrency(pnl)} €`;
     const slTp = `${p.stop_loss ? (isStock ? "$" + p.stop_loss.toFixed(2) : p.stop_loss.toFixed(5)) : "--"} / ${p.take_profit ? (isStock ? "$" + p.take_profit.toFixed(2) : p.take_profit.toFixed(5)) : "--"}`;
+    const displaySym = isStock ? "$" + p.instrument : p.instrument.replace("_", "/");
 
     tr.innerHTML = `
       <td class="font-mono">${p.id.substring(0, 8)}</td>
-      <td><strong>${isStock ? "$" + p.instrument : p.instrument.replace("_", "/")}</strong></td>
+      <td>
+        <button class="pos-symbol-btn" data-symbol="${p.instrument}" title="Klicke um Chart für ${displaySym} anzuzeigen">
+          <strong>${displaySym}</strong>
+          <i class="fa-solid fa-chart-line"></i>
+        </button>
+      </td>
       <td><span class="type-badge ${p.direction.toLowerCase()}">${p.direction}</span></td>
       <td>${p.units} ${isStock ? "Shares" : "Units"}</td>
       <td class="font-mono">${isStock ? "$" + p.entry_price.toFixed(2) : p.entry_price.toFixed(5)}</td>
@@ -876,9 +892,28 @@ function renderPositionsTable(positions, isStock) {
   });
   positionsTableBody.appendChild(fragment);
 
+  // Click on symbol button switches chart to this stock/pair
+  positionsTableBody.querySelectorAll(".pos-symbol-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      switchInstrument(btn.dataset.symbol);
+    });
+  });
+
+  // Clicking on table row also switches chart to this stock/pair
+  positionsTableBody.querySelectorAll("tr.pos-row").forEach((row) => {
+    row.addEventListener("click", (e) => {
+      if (e.target.closest(".btn-close-pos")) return;
+      switchInstrument(row.dataset.symbol);
+    });
+  });
+
   // Attach close buttons
   document.querySelectorAll(".btn-close-pos").forEach((btn) => {
-    btn.addEventListener("click", () => closeSinglePosition(btn.dataset.id));
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      closeSinglePosition(btn.dataset.id);
+    });
   });
 }
 
