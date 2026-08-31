@@ -1,6 +1,16 @@
-# 🤖 Gemini Dual Autonome Trading-Plattform (Forex, NASDAQ-100 & Dow Jones 30)
+# 🌌 AURA QUANT AI™ • Autonomous Multi-Engine Trading Platform
 
-Eine vollautonome, KI-gestützte Multi-Agenten-Trading-Plattform für den Devisenmarkt (Forex) und den gesamten US-Aktienmarkt (**NASDAQ-100**, **Dow Jones Industrial Average 30** und **Index-ETFs**), entwickelt mit **Google Gemini**, **Alpaca Markets** und der **OANDA v20 REST & Streaming API**.
+<div align="center">
+  <img src="web/static/images/aura_quant_logo.jpg" alt="AURA Quant AI Logo" width="220" style="border-radius: 20px; box-shadow: 0 8px 24px rgba(2, 132, 199, 0.25);"/>
+  <br/><br/>
+  <strong>Next-Generation Autonomous Quantitative Trading OS for Forex, NASDAQ-100 & Dow Jones 30</strong>
+  <br/>
+  <em>Powered by Google Gemini 2.5 • Alpaca Markets • OANDA v20 • Real-Time Web Cockpit</em>
+</div>
+
+<br/>
+
+**AURA QUANT AI** ist eine hochentwickelte, vollautonome und KI-gestützte Multi-Agenten-Trading-Plattform für den Devisenmarkt (Forex) und den gesamten US-Aktienmarkt (**NASDAQ-100**, **Dow Jones Industrial Average 30** und **Index-ETFs**), angetrieben von **Google Gemini AI**, **Alpaca Markets** und der **OANDA v20 REST & Streaming API**.
 
 Das System kombiniert quantitative technische Analysen, Multi-Symbol Intraday Screener, VWAP-Benchmarks, Opening Range Breakouts (ORB), Marktstruktur-Erkennung (Smart Money Concepts / FVGs) und modernstes Prompting mit einem strikten Risikomanager und einem interaktiven Live-Web-Cockpit.
 
