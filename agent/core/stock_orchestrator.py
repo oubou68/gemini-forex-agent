@@ -73,9 +73,12 @@ class StockTradingAgentOrchestrator:
         self.indicator_engine = StockTechnicalIndicatorEngine()
         self.structure_analyzer = MarketStructureAnalyzer()
         self.session_analyzer = StockSessionAnalyzer()
+        gemini_cfg = yaml_config.get("gemini", {})
         self.ai_analyst = GeminiStockAnalyst(
             api_key=settings.GEMINI_API_KEY,
-            model_name=settings.GEMINI_MODEL
+            model_name=settings.GEMINI_MODEL,
+            restrict_to_trading_hours=gemini_cfg.get("restrict_to_trading_hours", settings.GEMINI_RESTRICT_TO_TRADING_HOURS),
+            regular_hours_only=gemini_cfg.get("stock_regular_hours_only", settings.GEMINI_STOCK_REGULAR_HOURS_ONLY)
         )
         self.memory = AgentMemory()
 

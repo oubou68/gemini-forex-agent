@@ -162,6 +162,8 @@ const inputOandaAccount = document.getElementById("inputOandaAccount");
 const selectAlpacaMode = document.getElementById("selectAlpacaMode");
 const inputAlpacaKey = document.getElementById("inputAlpacaKey");
 const inputAlpacaSecret = document.getElementById("inputAlpacaSecret");
+const checkGeminiTradingHours = document.getElementById("checkGeminiTradingHours");
+const checkStockRegularHours = document.getElementById("checkStockRegularHours");
 
 // Theme Support (Light & Friendly / Dark)
 function isDarkThemeActive() {
@@ -1015,6 +1017,8 @@ document.querySelectorAll(".modal-tab").forEach((tab) => {
 async function saveSettings() {
   const payload = {
     gemini_api_key: inputGeminiKey.value.trim(),
+    gemini_restrict_trading_hours: checkGeminiTradingHours ? checkGeminiTradingHours.checked : true,
+    gemini_stock_regular_hours_only: checkStockRegularHours ? checkStockRegularHours.checked : false,
     oanda_api_key: inputOandaKey.value.trim(),
     oanda_account_id: inputOandaAccount.value.trim(),
     oanda_mode: selectOandaMode.value,

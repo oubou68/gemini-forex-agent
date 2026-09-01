@@ -225,6 +225,8 @@ gemini:
   temperature: 0.2
   max_tokens: 1500
   confidence_threshold: 65       # Only execute trades if Gemini confidence >= 65%
+  restrict_to_trading_hours: true # Optimize token usage by restricting Gemini API calls to active market hours
+  stock_regular_hours_only: false # If true, restricts stock Gemini queries strictly to 09:30-16:00 EST (RTH)
 
 indicators:
   ema_periods: [9, 21, 50, 200]

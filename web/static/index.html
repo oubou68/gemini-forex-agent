@@ -402,6 +402,20 @@
             <label>Gemini Modell:</label>
             <input type="text" id="inputGeminiModel" value="gemini-2.5-flash" class="form-input" readonly>
           </div>
+          <div class="form-group">
+            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="checkGeminiTradingHours" checked>
+              <span><strong>Token-Optimierung:</strong> Gemini nur während aktiver Handelszeiten abfragen</span>
+            </label>
+            <small class="form-help">Spart API-Tokens, indem Gemini-Anfragen nachts und am Wochenende pausiert werden und stattdessen die lokale Quant-Engine läuft.</small>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="checkStockRegularHours">
+              <span>Aktien-KI strikt auf reguläre US-Börsenzeiten (09:30–16:00 EST) beschränken</span>
+            </label>
+            <small class="form-help">Wenn deaktiviert, analysiert die KI auch US Pre-Market (ab 04:00 EST) und After-Hours (bis 20:00 EST).</small>
+          </div>
         </div>
 
         <!-- OANDA Settings Tab -->

@@ -7,6 +7,7 @@ from agent.core.models import (
     MarketStructure, MarketPrice
 )
 from agent.ai.stock_prompts import STOCK_SYSTEM_INTRADAY_PROMPT, STOCK_USER_ANALYSIS_TEMPLATE
+from agent.analysis.stock_session import StockSessionAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -14,13 +15,22 @@ logger = logging.getLogger(__name__)
 class GeminiStockAnalyst:
     """
     Intelligente KI-Entscheidungs-Engine für US-Aktien- & ETF-Intraday-Trading.
-    Nutzt das Google Gemini SDK (google-genai) mit strukturierter JSON-Generierung
-    und kalibrierter Quant-Heuristik für VWAP & Opening Range Breakouts.
+    Nutzt das Google Gemini SDK (google-genai) mit strukturierter JSON-Generierung,
+    kalibrierter Quant-Heuristik für VWAP & Opening Range Breakouts
+    und optimiertem Token-Verbrauch durch Handelszeiten-Gating.
     """
 
-    def __init__(self, api_key: Optional[str] = None, model_name: str = "gemini-2.5-flash"):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model_name: str = "gemini-2.5-flash",
+        restrict_to_trading_hours: bool = True,
+        regular_hours_only: bool = False
+    ):
         self.api_key = api_key or ""
         self.model_name = model_name
+        self.restrict_to_trading_hours = restrict_to_trading_hours
+        self.regular_hours_only = regular_hours_only
         self.client = None
         self._init_client()
 
@@ -42,6 +52,12 @@ class GeminiStockAnalyst:
             self.model_name = model_name
         self._init_client()
 
+    def set_trading_hours_restriction(self, restrict: bool, regular_hours_only: Optional[bool] = None):
+        self.restrict_to_trading_hours = restrict
+        if regular_hours_only is not None:
+            self.regular_hours_only = regular_hours_only
+        logger.info(f"Gemini Stock Token-Optimierung: restrict={restrict}, regular_hours_only={self.regular_hours_only}")
+
     async def analyze_market(
         self,
         symbol: str,
@@ -56,6 +72,17 @@ class GeminiStockAnalyst:
         """
         Führt eine Aktien-Analyse via Gemini oder Heuristik-Engine durch.
         """
+        # Token-Optimierung: Wenn US-Markt geschlossen ist, überspringe Gemini API-Aufruf
+        if self.restrict_to_trading_hours and not StockSessionAnalyzer.is_market_open(regular_hours_only=self.regular_hours_only):
+            logger.info(f"US-Aktienmarkt geschlossen ({session_name}). Überspringe Gemini API-Aufruf zur Token-Optimierung.")
+            return GeminiTradeDecision(
+                action=TradeAction.HOLD,
+                instrument=symbol,
+                confidence=50.0,
+                thesis_summary=f"US-Aktienmarkt geschlossen ({session_name}). Gemini Token-Schonung aktiv.",
+                reasoning=f"Außerhalb der konfigurierten US-Handelszeiten ({session_name}) werden keine Gemini Tokens verbraucht.",
+                setup_type="NONE"
+            )
         user_prompt = STOCK_USER_ANALYSIS_TEMPLATE.format(
             symbol=symbol,
             bid=price.bid,

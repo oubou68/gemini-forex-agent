@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     # Gemini AI
     GEMINI_API_KEY: str = Field(default="", description="Google Gemini API Key")
     GEMINI_MODEL: str = Field(default="gemini-2.5-flash", description="Gemini Model Identifier")
+    GEMINI_RESTRICT_TO_TRADING_HOURS: bool = Field(default=True, description="Restrict Gemini LLM queries to active market hours")
+    GEMINI_STOCK_REGULAR_HOURS_ONLY: bool = Field(default=False, description="Restrict stock Gemini queries strictly to RTH (09:30-16:00 EST)")
     
     # OANDA v20 Broker (Forex)
     OANDA_API_KEY: str = Field(default="", description="OANDA v20 API Key")

@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from typing import Dict, Any
+from typing import Optional
 
 
 class StockSessionAnalyzer:
@@ -9,7 +9,7 @@ class StockSessionAnalyzer:
     """
 
     @staticmethod
-    def get_current_session(dt: datetime = None) -> str:
+    def get_current_session(dt: Optional[datetime] = None) -> str:
         """
         Gibt die aktuelle US-Handelssitzung zurück:
         - US_OPENING_DRIVE (09:30 - 10:30 EST): Höchste Volatilität & ORB-Formierung
@@ -31,7 +31,6 @@ class StockSessionAnalyzer:
 
         # US Eastern Time Berechnung (ca. UTC - 4 / - 5)
         # UTC 13:30 = 09:30 EST (Sommerzeit / EDT)
-        # Wir nutzen UTC-Minuten des Tages zur exakten Bestimmung
         minute_of_day_utc = dt.hour * 60 + dt.minute
 
         # 08:00 UTC (04:00 EST) bis 13:30 UTC (09:30 EST)
@@ -53,7 +52,29 @@ class StockSessionAnalyzer:
             return "US_MARKET_CLOSED (OVERNIGHT)"
 
     @staticmethod
-    def is_regular_trading_hours(dt: datetime = None) -> bool:
+    def is_regular_trading_hours(dt: Optional[datetime] = None) -> bool:
         """Gibt True zurück, wenn die regulären US-Handelszeiten (09:30 - 16:00 EST) aktiv sind."""
         sess = StockSessionAnalyzer.get_current_session(dt)
         return any(s in sess for s in ["OPENING_DRIVE", "MID_DAY", "POWER_HOUR"])
+
+    @staticmethod
+    def is_market_open(dt: Optional[datetime] = None, regular_hours_only: bool = False) -> bool:
+        """
+        Prüft, ob der US-Aktienmarkt geöffnet ist.
+        - regular_hours_only = True: Nur reguläre Haupthandelszeiten (09:30 - 16:00 EST)
+        - regular_hours_only = False: Inklusive Pre-Market & After-Hours (04:00 - 20:00 EST)
+        """
+        if dt is None:
+            dt = datetime.now(timezone.utc)
+        elif dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+
+        weekday = dt.weekday()
+        if weekday >= 5:  # Samstag oder Sonntag
+            return False
+
+        if regular_hours_only:
+            return StockSessionAnalyzer.is_regular_trading_hours(dt)
+
+        sess = StockSessionAnalyzer.get_current_session(dt)
+        return not ("CLOSED" in sess)

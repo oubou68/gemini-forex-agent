@@ -180,6 +180,9 @@ async def manual_order(payload: dict = Body(...)):
 @app.post("/api/config/keys")
 async def update_keys(payload: dict = Body(...)):
     gemini_key = payload.get("gemini_api_key")
+    gemini_restrict_trading_hours = payload.get("gemini_restrict_trading_hours")
+    gemini_stock_regular_hours = payload.get("gemini_stock_regular_hours_only")
+    
     oanda_key = payload.get("oanda_api_key")
     oanda_acc = payload.get("oanda_account_id")
     oanda_mode = payload.get("oanda_mode")
@@ -193,6 +196,16 @@ async def update_keys(payload: dict = Body(...)):
         agent_manager.stock_agent.ai_analyst.set_api_key(gemini_key)
         agent_manager.forex_agent.log("Gemini API Key aktualisiert.", "INFO", "CONFIG")
         agent_manager.stock_agent.log("Gemini API Key aktualisiert.", "INFO", "CONFIG")
+
+    if gemini_restrict_trading_hours is not None:
+        restrict = bool(gemini_restrict_trading_hours)
+        agent_manager.forex_agent.ai_analyst.set_trading_hours_restriction(restrict)
+        agent_manager.stock_agent.ai_analyst.set_trading_hours_restriction(
+            restrict,
+            regular_hours_only=bool(gemini_stock_regular_hours) if gemini_stock_regular_hours is not None else None
+        )
+        settings.GEMINI_RESTRICT_TO_TRADING_HOURS = restrict
+        agent_manager.forex_agent.log(f"Gemini Token-Optimierung (Handelszeiten): {restrict}", "INFO", "CONFIG")
 
     if oanda_key and oanda_acc:
         settings.OANDA_API_KEY = oanda_key
