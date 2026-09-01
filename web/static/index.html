@@ -376,6 +376,45 @@
     </div>
   </main>
 
+  <!-- Full-Width Bottom Section: Trade History / Previous Closed Trades -->
+  <section class="bottom-history-section">
+    <div class="card history-card">
+      <div class="card-header">
+        <div class="card-title-group">
+          <i class="fa-solid fa-clock-rotate-left"></i>
+          <h2>Abgeschlossene Trades & Historie (<span id="closedTradesCount">0</span>)</h2>
+        </div>
+        <div class="history-metrics-summary">
+          <span class="history-pill" id="historyWinLossSummary"><i class="fa-solid fa-trophy"></i> 0W / 0L (0.0% Win-Rate)</span>
+          <span class="history-pill profit-pill" id="historyNetPnlBadge"><i class="fa-solid fa-chart-line"></i> Realisierter GuV: +0.00 EUR</span>
+        </div>
+      </div>
+      <div class="table-responsive">
+        <table class="data-table" id="closedTradesTable">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Symbol</th>
+              <th>Richtung</th>
+              <th>Menge</th>
+              <th>Entry-Kurs</th>
+              <th>Exit-Kurs</th>
+              <th>Realisierter GuV</th>
+              <th>Eröffnung</th>
+              <th>Schließung</th>
+              <th>Auslöser / Grund</th>
+            </tr>
+          </thead>
+          <tbody id="closedTradesTableBody">
+            <tr>
+              <td colspan="10" class="empty-state">Noch keine abgeschlossenen Trades in der Historie.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
   <!-- Settings Modal with Multi-Broker Tabs -->
   <div class="modal-overlay" id="settingsModal">
     <div class="modal-card">

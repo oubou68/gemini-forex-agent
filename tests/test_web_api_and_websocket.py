@@ -158,3 +158,27 @@ async def test_websocket_lifecycle_and_messages():
         assert req_res["type"] == "CANDLES"
         assert req_res["bot_type"] == "forex"
         assert req_res["instrument"] == "GBP_USD"
+
+
+@pytest.mark.asyncio
+async def test_rest_trade_history_endpoint():
+    await agent_manager.forex_agent.set_mode("simulator")
+    await agent_manager.stock_agent.set_mode("simulator")
+
+    # Place a trade and close it
+    pos = await agent_manager.stock_agent.execute_manual_trade("AAPL", "BUY", 1.0)
+    await agent_manager.stock_agent.broker.close_position(pos.id, reason="MANUAL_TEST")
+
+    res = client.get("/api/trades/history")
+    assert res.status_code == 200
+    data = res.json()
+    assert "forex" in data
+    assert "stock" in data
+    assert len(data["stock"]) > 0
+    assert data["stock"][0]["instrument"] == "AAPL"
+
+    # Specific bot query
+    res_stock = client.get("/api/trades/history?bot_type=stock")
+    assert res_stock.status_code == 200
+    assert res_stock.json()["bot_type"] == "stock"
+    assert len(res_stock.json()["trades"]) > 0

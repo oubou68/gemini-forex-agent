@@ -172,6 +172,7 @@ class AgentTelemetry(BaseModel):
     market_structure: Optional[MarketStructure] = None
     last_decision: Optional[GeminiTradeDecision] = None
     open_positions: List[Position] = []
+    closed_positions: List[Dict[str, Any]] = []
     account: AccountSummary
     stats: TradePerformanceStats
     recent_logs: List[Dict[str, Any]] = []

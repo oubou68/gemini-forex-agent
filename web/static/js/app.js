@@ -140,6 +140,10 @@ const btnScanNow = document.getElementById("btnScanNow");
 const btnEmergencyClose = document.getElementById("btnEmergencyClose");
 const openPositionsCount = document.getElementById("openPositionsCount");
 const positionsTableBody = document.getElementById("positionsTableBody");
+const closedTradesTableBody = document.getElementById("closedTradesTableBody");
+const closedTradesCount = document.getElementById("closedTradesCount");
+const historyWinLossSummary = document.getElementById("historyWinLossSummary");
+const historyNetPnlBadge = document.getElementById("historyNetPnlBadge");
 const logStream = document.getElementById("logStream");
 const logHeaderTitle = document.getElementById("logHeaderTitle");
 
@@ -810,12 +814,16 @@ function updateTelemetryUI(data, botType) {
   openPositionsCount.textContent = openPos.length;
   renderPositionsTable(openPos, isStock);
 
-  // 8. Manual Quick Trade Buttons
+  // 8. Closed Trades History Table
+  const closedTrades = data.closed_positions || [];
+  renderClosedTradesTable(closedTrades, stats, isStock);
+
+  // 9. Manual Quick Trade Buttons
   const unitLabel = isStock ? "Shares" : "Units";
   btnManualBuy.innerHTML = `<i class="fa-solid fa-arrow-up"></i> BUY <span class="active-instrument-label">${isStock ? "$" + currentInst : currentInst.replace("_", "/")} (${unitLabel})</span>`;
   btnManualSell.innerHTML = `<i class="fa-solid fa-arrow-down"></i> SELL <span class="active-instrument-label">${isStock ? "$" + currentInst : currentInst.replace("_", "/")} (${unitLabel})</span>`;
 
-  // 9. Logs
+  // 10. Logs
   if (data.recent_logs && data.recent_logs.length > 0) {
     renderLogs(data.recent_logs);
   }
@@ -915,6 +923,115 @@ function renderPositionsTable(positions, isStock) {
     btn.addEventListener("click", (e) => {
       e.stopPropagation();
       closeSinglePosition(btn.dataset.id);
+    });
+  });
+}
+
+function renderClosedTradesTable(trades, stats, isStock) {
+  if (!closedTradesTableBody) return;
+  closedTradesTableBody.innerHTML = "";
+
+  const totalCount = trades ? trades.length : 0;
+  if (closedTradesCount) closedTradesCount.textContent = totalCount;
+
+  if (stats) {
+    const wins = stats.winning_trades || 0;
+    const losses = stats.losing_trades || 0;
+    const winRate = stats.win_rate_pct !== undefined ? stats.win_rate_pct.toFixed(1) : "0.0";
+    const totalPnl = stats.total_pnl || 0.0;
+    const pnlPrefix = totalPnl >= 0 ? "+" : "";
+    const pnlFormatted = isStock ? `${pnlPrefix}$${formatCurrency(totalPnl)}` : `${pnlPrefix}${formatCurrency(totalPnl)} EUR`;
+
+    if (historyWinLossSummary) {
+      historyWinLossSummary.innerHTML = `<i class="fa-solid fa-trophy"></i> ${wins}W / ${losses}L (${winRate}% Win-Rate)`;
+    }
+    if (historyNetPnlBadge) {
+      historyNetPnlBadge.className = `history-pill ${totalPnl >= 0 ? "profit-pill" : "loss-pill"}`;
+      historyNetPnlBadge.innerHTML = `<i class="fa-solid fa-chart-line"></i> Realisierter GuV: <strong>${pnlFormatted}</strong>`;
+    }
+  }
+
+  if (!trades || trades.length === 0) {
+    closedTradesTableBody.innerHTML = '<tr><td colspan="10" class="empty-state">Noch keine abgeschlossenen Trades in der Historie.</td></tr>';
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  trades.forEach((t) => {
+    const tr = document.createElement("tr");
+    tr.className = "pos-row";
+    tr.dataset.symbol = t.instrument;
+
+    const pnl = t.realized_pnl || 0.0;
+    const pnlClass = pnl >= 0 ? "positive" : "negative";
+    const prefix = pnl >= 0 ? "+" : "";
+    const pnlFormatted = isStock ? `${prefix}$${formatCurrency(pnl)}` : `${prefix}${formatCurrency(pnl)} EUR`;
+    const displaySym = isStock ? "$" + t.instrument : t.instrument.replace("_", "/");
+
+    const entryStr = t.entry_price ? (isStock ? "$" + t.entry_price.toFixed(2) : (t.instrument && t.instrument.includes("JPY") ? t.entry_price.toFixed(3) : t.entry_price.toFixed(5))) : "--";
+    const exitStr = t.exit_price ? (isStock ? "$" + t.exit_price.toFixed(2) : (t.instrument && t.instrument.includes("JPY") ? t.exit_price.toFixed(3) : t.exit_price.toFixed(5))) : "--";
+
+    // Format timestamps
+    const formatTimeStr = (iso) => {
+      if (!iso) return "--:--:--";
+      try {
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return iso.substring(11, 19) || iso;
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      } catch {
+        return iso.substring(11, 19) || iso;
+      }
+    };
+
+    const openTimeStr = formatTimeStr(t.open_time);
+    const closeTimeStr = formatTimeStr(t.close_time);
+
+    // Reason Tag
+    const reason = t.close_reason || "CLOSED";
+    let reasonClass = "reason-signal";
+    if (reason.includes("TP")) reasonClass = "reason-tp";
+    else if (reason.includes("SL")) reasonClass = "reason-sl";
+    else if (reason.includes("EMERGENCY") || reason.includes("CIRCUIT")) reasonClass = "reason-emergency";
+    else if (reason.includes("MANUAL")) reasonClass = "reason-manual";
+
+    const dir = t.direction ? (typeof t.direction === "object" ? t.direction.value : t.direction) : "BUY";
+    const dirClass = dir.toLowerCase();
+
+    tr.innerHTML = `
+      <td class="font-mono font-xs">${(t.id || "").substring(0, 8)}</td>
+      <td>
+        <button class="pos-symbol-btn" data-symbol="${t.instrument}" title="Klicke um Chart für ${displaySym} anzuzeigen">
+          <strong>${displaySym}</strong>
+          <i class="fa-solid fa-chart-line"></i>
+        </button>
+      </td>
+      <td><span class="type-badge ${dirClass}">${dir}</span></td>
+      <td>${t.units || 0} ${isStock ? "Shares" : "Units"}</td>
+      <td class="font-mono">${entryStr}</td>
+      <td class="font-mono">${exitStr}</td>
+      <td class="font-mono ${pnlClass}"><strong>${pnlFormatted}</strong></td>
+      <td class="font-mono font-xs">${openTimeStr}</td>
+      <td class="font-mono font-xs">${closeTimeStr}</td>
+      <td><span class="reason-tag ${reasonClass}">${reason}</span></td>
+    `;
+    fragment.appendChild(tr);
+  });
+
+  closedTradesTableBody.appendChild(fragment);
+
+  // Click on symbol button switches chart to this stock/pair
+  closedTradesTableBody.querySelectorAll(".pos-symbol-btn").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const sym = btn.dataset.symbol;
+      if (sym) switchInstrument(sym);
+    });
+  });
+
+  closedTradesTableBody.querySelectorAll("tr.pos-row").forEach((row) => {
+    row.addEventListener("click", () => {
+      const sym = row.dataset.symbol;
+      if (sym) switchInstrument(sym);
     });
   });
 }

@@ -1366,3 +1366,91 @@ tr.pos-row:hover td {
 .font-xs { font-size: 11px; }
 .positive { color: var(--accent-emerald) !important; }
 .negative { color: var(--accent-rose) !important; }
+
+/* ==========================================================================
+   Bottom History Section (Previous Closed Trades)
+   ========================================================================== */
+.bottom-history-section {
+  padding: 0 24px 28px;
+  width: 100%;
+}
+
+.history-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+}
+
+.history-card:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+.history-metrics-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.history-pill {
+  font-size: 12px;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.history-pill.profit-pill {
+  color: var(--accent-emerald);
+  background: var(--badge-profit-bg);
+  border-color: rgba(5, 150, 105, 0.25);
+}
+
+.history-pill.loss-pill {
+  color: var(--accent-rose);
+  background: var(--badge-loss-bg);
+  border-color: rgba(225, 29, 72, 0.25);
+}
+
+.reason-tag {
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.3px;
+  display: inline-block;
+}
+
+.reason-tag.reason-tp {
+  background: var(--badge-profit-bg);
+  color: var(--accent-emerald);
+  border: 1px solid rgba(5, 150, 105, 0.3);
+}
+
+.reason-tag.reason-sl {
+  background: var(--badge-loss-bg);
+  color: var(--accent-rose);
+  border: 1px solid rgba(225, 29, 72, 0.3);
+}
+
+.reason-tag.reason-signal,
+.reason-tag.reason-manual {
+  background: var(--badge-cyan-bg);
+  color: var(--accent-cyan);
+  border: 1px solid rgba(2, 132, 199, 0.3);
+}
+
+.reason-tag.reason-emergency {
+  background: rgba(217, 119, 6, 0.12);
+  color: var(--accent-amber);
+  border: 1px solid rgba(217, 119, 6, 0.3);
+}

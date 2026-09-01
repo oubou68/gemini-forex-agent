@@ -108,6 +108,23 @@ async def get_stock_screener():
     return [c.model_dump() for c in candidates]
 
 
+@app.get("/api/trades/history")
+async def get_trade_history(bot_type: Optional[str] = None, limit: int = 50):
+    if bot_type == "stock":
+        tel = await agent_manager.stock_agent.get_telemetry()
+        return {"bot_type": "stock", "trades": tel.closed_positions[:limit]}
+    elif bot_type == "forex":
+        tel = await agent_manager.forex_agent.get_telemetry()
+        return {"bot_type": "forex", "trades": tel.closed_positions[:limit]}
+    
+    forex_tel = await agent_manager.forex_agent.get_telemetry()
+    stock_tel = await agent_manager.stock_agent.get_telemetry()
+    return {
+        "forex": forex_tel.closed_positions[:limit],
+        "stock": stock_tel.closed_positions[:limit]
+    }
+
+
 @app.post("/api/control/start")
 async def start_agent(payload: dict = Body(default={})):
     bot = payload.get("bot_type", "all")

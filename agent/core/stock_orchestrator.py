@@ -479,7 +479,18 @@ class StockTradingAgentOrchestrator:
     async def get_telemetry(self) -> AgentTelemetry:
         account = await self.broker.get_account_summary()
         open_positions = await self.broker.get_open_positions()
+
+        # Synchronisiere geschlossene Broker-Trades mit Memory
+        try:
+            broker_closed = await self.broker.get_closed_positions()
+            for cp in broker_closed:
+                if not any(t.get("id") == cp.id for t in self.memory.trade_logs):
+                    self.memory.record_closed_trade(cp, thesis="Order durch Broker / SL / TP geschlossen")
+        except Exception as e:
+            logger.debug(f"Fehler bei Synchronisation geschlossener Aktien-Trades: {e}")
+
         stats = self.memory.get_performance_stats()
+        closed_list = list(reversed(self.memory.trade_logs[-50:]))
 
         return AgentTelemetry(
             timestamp=datetime.utcnow().isoformat() + "Z",
@@ -491,6 +502,7 @@ class StockTradingAgentOrchestrator:
             market_structure=self.last_structure,
             last_decision=self.last_decision,
             open_positions=open_positions,
+            closed_positions=closed_list,
             account=account,
             stats=stats,
             recent_logs=self.recent_logs[-30:],
