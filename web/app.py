@@ -241,6 +241,69 @@ async def update_keys(payload: dict = Body(...)):
     return {"status": "keys_updated"}
 
 
+@app.post("/api/config/risk")
+async def update_risk_config(payload: dict = Body(...)):
+    """Aktualisiert Risikomanagement- und Exit-Regeln live zur Laufzeit."""
+    risk_pct = payload.get("risk_per_trade_pct")
+    max_dd = payload.get("max_daily_drawdown_pct")
+    forex_max_pos = payload.get("max_open_positions")
+    stock_max_pos = payload.get("stock_max_open_positions")
+    sl_atr = payload.get("default_atr_multiplier_sl")
+    tp_atr = payload.get("default_atr_multiplier_tp")
+    rrr = payload.get("min_risk_reward_ratio")
+    be_r = payload.get("breakeven_trigger_r")
+    trailing_on = payload.get("trailing_stop_enabled")
+    allow_ai_close = payload.get("allow_ai_close_signals")
+    auto_liquidate = payload.get("auto_liquidate_on_drawdown")
+
+    # Update Forex Risk Manager
+    agent_manager.forex_agent.risk_manager.update_risk_parameters(
+        risk_per_trade_pct=float(risk_pct) if risk_pct is not None else None,
+        max_daily_drawdown_pct=float(max_dd) if max_dd is not None else None,
+        max_open_positions=int(forex_max_pos) if forex_max_pos is not None else None,
+        default_atr_multiplier_sl=float(sl_atr) if sl_atr is not None else None,
+        default_atr_multiplier_tp=float(tp_atr) if tp_atr is not None else None,
+        min_risk_reward_ratio=float(rrr) if rrr is not None else None,
+        breakeven_trigger_r=float(be_r) if be_r is not None else None,
+        trailing_stop_enabled=bool(trailing_on) if trailing_on is not None else None,
+        allow_ai_close_signals=bool(allow_ai_close) if allow_ai_close is not None else None,
+        auto_liquidate_on_drawdown=bool(auto_liquidate) if auto_liquidate is not None else None
+    )
+
+    # Update Stock Risk Manager
+    agent_manager.stock_agent.risk_manager.update_risk_parameters(
+        risk_per_trade_pct=float(risk_pct) if risk_pct is not None else None,
+        max_daily_drawdown_pct=float(max_dd) if max_dd is not None else None,
+        max_open_positions=int(stock_max_pos) if stock_max_pos is not None else None,
+        default_atr_multiplier_sl=float(sl_atr) if sl_atr is not None else None,
+        default_atr_multiplier_tp=float(tp_atr) if tp_atr is not None else None,
+        min_risk_reward_ratio=float(rrr) if rrr is not None else None,
+        breakeven_trigger_r=float(be_r) if be_r is not None else None,
+        trailing_stop_enabled=bool(trailing_on) if trailing_on is not None else None,
+        allow_ai_close_signals=bool(allow_ai_close) if allow_ai_close is not None else None,
+        auto_liquidate_on_drawdown=bool(auto_liquidate) if auto_liquidate is not None else None
+    )
+
+    agent_manager.forex_agent.log("Risiko- und Exit-Parameter live aktualisiert.", "INFO", "CONFIG")
+    agent_manager.stock_agent.log("Risiko- und Exit-Parameter live aktualisiert.", "INFO", "CONFIG")
+
+    return {"status": "risk_config_updated"}
+
+
+@app.post("/api/trades/clear")
+async def clear_trade_history(payload: dict = Body(default={})):
+    """Leert die Trade-Historie für einen oder beide Bots."""
+    bot_type = payload.get("bot_type", "all")
+    if bot_type in ("forex", "all"):
+        agent_manager.forex_agent.memory.clear_memory()
+        agent_manager.forex_agent.log("Trade-Historie (Forex) zurückgesetzt.", "INFO", "MEMORY")
+    if bot_type in ("stock", "all"):
+        agent_manager.stock_agent.memory.clear_memory()
+        agent_manager.stock_agent.log("Trade-Historie (Aktien) zurückgesetzt.", "INFO", "MEMORY")
+    
+    return {"status": "history_cleared", "bot_type": bot_type}
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()

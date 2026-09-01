@@ -210,7 +210,8 @@ trading:
 
 risk:
   risk_per_trade_pct: 1.0        # Risk 1.0% of account equity per trade
-  max_open_positions: 3          # Maximum concurrent open trades
+  max_open_positions: 5          # Maximum concurrent open trades (Forex)
+  stock_max_open_positions: 20   # Maximum concurrent open trades (Stocks)
   max_daily_drawdown_pct: 3.0    # Circuit breaker: halt trading if daily DD >= 3%
   max_spread_pips: 2.5           # Maximum allowable spread in pips (Forex)
   max_spread_dollars: 0.35       # Maximum allowable spread in USD (Stocks)
@@ -219,6 +220,8 @@ risk:
   default_atr_multiplier_tp: 2.5 # TP = Entry +/- (ATR * 2.5)
   breakeven_trigger_r: 1.0       # Move SL to Breakeven when 1R profit reached
   trailing_stop_enabled: true
+  allow_ai_close_signals: true   # Whether Gemini AI can close positions before SL/TP
+  auto_liquidate_on_drawdown: false # If false, halts new entries while letting existing trades run to SL/TP
 
 gemini:
   model_name: "gemini-2.5-flash"

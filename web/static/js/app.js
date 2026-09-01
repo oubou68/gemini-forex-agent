@@ -169,6 +169,18 @@ const inputAlpacaSecret = document.getElementById("inputAlpacaSecret");
 const checkGeminiTradingHours = document.getElementById("checkGeminiTradingHours");
 const checkStockRegularHours = document.getElementById("checkStockRegularHours");
 
+// Risk & Exit Modal DOM
+const inputRiskPct = document.getElementById("inputRiskPct");
+const inputMaxDailyDD = document.getElementById("inputMaxDailyDD");
+const inputForexMaxPos = document.getElementById("inputForexMaxPos");
+const inputStockMaxPos = document.getElementById("inputStockMaxPos");
+const inputSlAtr = document.getElementById("inputSlAtr");
+const inputTpAtr = document.getElementById("inputTpAtr");
+const inputMinRrr = document.getElementById("inputMinRrr");
+const checkAllowAiClose = document.getElementById("checkAllowAiClose");
+const checkAutoLiquidateDrawdown = document.getElementById("checkAutoLiquidateDrawdown");
+const btnClearHistory = document.getElementById("btnClearHistory");
+
 // Theme Support (Light & Friendly / Dark)
 function isDarkThemeActive() {
   return document.body.classList.contains("dark-theme");
@@ -1132,7 +1144,7 @@ document.querySelectorAll(".modal-tab").forEach((tab) => {
 
 // Save Settings Event
 async function saveSettings() {
-  const payload = {
+  const keysPayload = {
     gemini_api_key: inputGeminiKey.value.trim(),
     gemini_restrict_trading_hours: checkGeminiTradingHours ? checkGeminiTradingHours.checked : true,
     gemini_stock_regular_hours_only: checkStockRegularHours ? checkStockRegularHours.checked : false,
@@ -1144,18 +1156,61 @@ async function saveSettings() {
     alpaca_mode: selectAlpacaMode.value
   };
 
+  const riskPayload = {
+    risk_per_trade_pct: inputRiskPct ? parseFloat(inputRiskPct.value) : 1.0,
+    max_daily_drawdown_pct: inputMaxDailyDD ? parseFloat(inputMaxDailyDD.value) : 3.0,
+    max_open_positions: inputForexMaxPos ? parseInt(inputForexMaxPos.value, 10) : 5,
+    stock_max_open_positions: inputStockMaxPos ? parseInt(inputStockMaxPos.value, 10) : 20,
+    default_atr_multiplier_sl: inputSlAtr ? parseFloat(inputSlAtr.value) : 1.5,
+    default_atr_multiplier_tp: inputTpAtr ? parseFloat(inputTpAtr.value) : 2.5,
+    min_risk_reward_ratio: inputMinRrr ? parseFloat(inputMinRrr.value) : 1.5,
+    allow_ai_close_signals: checkAllowAiClose ? checkAllowAiClose.checked : true,
+    auto_liquidate_on_drawdown: checkAutoLiquidateDrawdown ? checkAutoLiquidateDrawdown.checked : false
+  };
+
   try {
-    const res = await fetch("/api/config/keys", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
-    });
-    if (res.ok) {
-      settingsModal.classList.remove("active");
-      alert("Einstellungen erfolgreich gespeichert und angewendet!");
-    }
+    await Promise.all([
+      fetch("/api/config/keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(keysPayload)
+      }),
+      fetch("/api/config/risk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(riskPayload)
+      })
+    ]);
+
+    settingsModal.classList.remove("active");
+    alert("Einstellungen (API-Keys, Broker & Risiko-Regeln) erfolgreich gespeichert und angewendet!");
   } catch (e) {
     console.error("Fehler beim Speichern der Einstellungen:", e);
+  }
+}
+
+// Clear Trade History Event
+async function clearTradeHistory() {
+  if (!confirm("Möchtest du die bisherige Trade-Historie wirklich zurücksetzen?")) return;
+  try {
+    const res = await fetch("/api/trades/clear", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ bot_type: activeBot })
+    });
+    if (res.ok) {
+      if (closedTradesTableBody) {
+        closedTradesTableBody.innerHTML = '<tr><td colspan="10" class="empty-state">Noch keine abgeschlossenen Trades in der Historie.</td></tr>';
+      }
+      if (closedTradesCount) closedTradesCount.textContent = "0";
+      if (historyWinLossSummary) historyWinLossSummary.innerHTML = '<i class="fa-solid fa-trophy"></i> 0W / 0L (0.0% Win-Rate)';
+      if (historyNetPnlBadge) {
+        historyNetPnlBadge.className = 'history-pill profit-pill';
+        historyNetPnlBadge.innerHTML = '<i class="fa-solid fa-chart-line"></i> Realisierter GuV: +0.00 EUR';
+      }
+    }
+  } catch (e) {
+    console.error("Fehler beim Leeren der Trade-Historie:", e);
   }
 }
 
@@ -1229,4 +1284,7 @@ document.addEventListener("DOMContentLoaded", () => {
   btnCloseSettings.addEventListener("click", () => settingsModal.classList.remove("active"));
   btnCancelSettings.addEventListener("click", () => settingsModal.classList.remove("active"));
   btnSaveSettings.addEventListener("click", saveSettings);
+  if (btnClearHistory) {
+    btnClearHistory.addEventListener("click", clearTradeHistory);
+  }
 });

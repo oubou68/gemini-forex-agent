@@ -387,6 +387,9 @@
         <div class="history-metrics-summary">
           <span class="history-pill" id="historyWinLossSummary"><i class="fa-solid fa-trophy"></i> 0W / 0L (0.0% Win-Rate)</span>
           <span class="history-pill profit-pill" id="historyNetPnlBadge"><i class="fa-solid fa-chart-line"></i> Realisierter GuV: +0.00 EUR</span>
+          <button class="btn btn-secondary btn-sm" id="btnClearHistory" title="Löscht alle archivierten Einträge aus der Trade-Historie" style="padding: 4px 10px; font-size: 11px;">
+            <i class="fa-solid fa-trash-can"></i> Historie leeren
+          </button>
         </div>
       </div>
       <div class="table-responsive">
@@ -427,6 +430,7 @@
         <button class="modal-tab active" data-target="mTabGemini"><i class="fa-solid fa-brain"></i> Gemini AI</button>
         <button class="modal-tab" data-target="mTabOanda"><i class="fa-solid fa-coins"></i> OANDA (Forex)</button>
         <button class="modal-tab" data-target="mTabAlpaca"><i class="fa-solid fa-chart-line"></i> Alpaca (Stocks)</button>
+        <button class="modal-tab" data-target="mTabRisk"><i class="fa-solid fa-shield-halved"></i> Risiko & Exits</button>
       </div>
 
       <div class="modal-body">
@@ -494,6 +498,59 @@
           <div class="form-group">
             <label>Alpaca Secret Key:</label>
             <input type="password" id="inputAlpacaSecret" placeholder="Secret Key..." class="form-input">
+          </div>
+        </div>
+
+        <!-- Risk & Exit Rules Tab -->
+        <div class="modal-tab-content" id="mTabRisk">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>Risiko pro Trade (%):</label>
+              <input type="number" id="inputRiskPct" step="0.1" min="0.1" max="5.0" value="1.0" class="form-input">
+            </div>
+            <div class="form-group">
+              <label>Max. Tages-Drawdown (%):</label>
+              <input type="number" id="inputMaxDailyDD" step="0.5" min="1.0" max="10.0" value="3.0" class="form-input">
+              <small class="form-help">Circuit Breaker Schwellenwert</small>
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>Max. Positionen (Forex):</label>
+              <input type="number" id="inputForexMaxPos" min="1" max="10" value="5" class="form-input">
+            </div>
+            <div class="form-group">
+              <label>Max. Positionen (Aktien):</label>
+              <input type="number" id="inputStockMaxPos" min="1" max="50" value="20" class="form-input">
+            </div>
+          </div>
+          <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label>SL ATR-Multiplikator:</label>
+              <input type="number" id="inputSlAtr" step="0.1" min="0.5" max="5.0" value="1.5" class="form-input">
+            </div>
+            <div class="form-group">
+              <label>TP ATR-Multiplikator:</label>
+              <input type="number" id="inputTpAtr" step="0.1" min="0.5" max="8.0" value="2.5" class="form-input">
+            </div>
+            <div class="form-group">
+              <label>Mindest-Chance/Risiko (RRR):</label>
+              <input type="number" id="inputMinRrr" step="0.1" min="1.0" max="5.0" value="1.5" class="form-input">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="checkAllowAiClose" checked>
+              <span><strong>Vorzeitige KI-Exits erlauben:</strong> Gemini darf Positionen bei Trendbruch vor SL/TP schließen</span>
+            </label>
+            <small class="form-help">Wenn deaktiviert, laufen Positionen strikt bis zum Take-Profit oder Stop-Loss (keine vorzeitigen Schließungen).</small>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+              <input type="checkbox" id="checkAutoLiquidateDrawdown">
+              <span><strong>Auto-Liquidierung bei Circuit Breaker:</strong> Alle offenen Trades sofort schließen bei Drawdown-Limit</span>
+            </label>
+            <small class="form-help">Wenn deaktiviert (Standard), werden nur neue Einstiege blockiert, während aktive Trades mit SL/TP weiterlaufen.</small>
           </div>
         </div>
       </div>

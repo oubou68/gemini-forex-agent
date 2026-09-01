@@ -25,7 +25,12 @@ class RiskManager:
         max_spread_pips: float = 2.5,
         min_risk_reward_ratio: float = 1.5,
         confidence_threshold: float = 65.0,
-        breakeven_trigger_r: float = 1.0
+        breakeven_trigger_r: float = 1.0,
+        default_atr_multiplier_sl: float = 1.5,
+        default_atr_multiplier_tp: float = 2.5,
+        trailing_stop_enabled: bool = True,
+        allow_ai_close_signals: bool = True,
+        auto_liquidate_on_drawdown: bool = False
     ):
         self.risk_per_trade_pct = risk_per_trade_pct
         self.max_open_positions = max_open_positions
@@ -34,6 +39,18 @@ class RiskManager:
         self.min_risk_reward_ratio = min_risk_reward_ratio
         self.confidence_threshold = confidence_threshold
         self.breakeven_trigger_r = breakeven_trigger_r
+        self.default_atr_multiplier_sl = default_atr_multiplier_sl
+        self.default_atr_multiplier_tp = default_atr_multiplier_tp
+        self.trailing_stop_enabled = trailing_stop_enabled
+        self.allow_ai_close_signals = allow_ai_close_signals
+        self.auto_liquidate_on_drawdown = auto_liquidate_on_drawdown
+
+    def update_risk_parameters(self, **kwargs):
+        """Aktualisiert Risikoparameter zur Laufzeit dynamisch."""
+        for key, value in kwargs.items():
+            if hasattr(self, key) and value is not None:
+                setattr(self, key, value)
+                logger.info(f"RiskManager Parameter aktualisiert: {key} = {value}")
 
     def calculate_position_size(
         self,

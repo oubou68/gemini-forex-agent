@@ -58,9 +58,14 @@ class TradingAgentOrchestrator:
             max_open_positions=risk_cfg.get("max_open_positions", settings.MAX_OPEN_POSITIONS),
             max_daily_drawdown_pct=risk_cfg.get("max_daily_drawdown_pct", settings.MAX_DAILY_DRAWDOWN_PERCENT),
             max_spread_pips=risk_cfg.get("max_spread_pips", settings.SPREAD_LIMIT_PIPS),
-            min_risk_reward_ratio=risk_cfg.get("min_risk_reward_ratio", 1.5),
+            min_risk_reward_ratio=risk_cfg.get("min_risk_reward_ratio", getattr(settings, "MIN_RISK_REWARD_RATIO", 1.5)),
             confidence_threshold=yaml_config.get("gemini", {}).get("confidence_threshold", 65.0),
-            breakeven_trigger_r=risk_cfg.get("breakeven_trigger_r", 1.0)
+            breakeven_trigger_r=risk_cfg.get("breakeven_trigger_r", getattr(settings, "BREAKEVEN_TRIGGER_R", 1.0)),
+            default_atr_multiplier_sl=risk_cfg.get("default_atr_multiplier_sl", getattr(settings, "DEFAULT_ATR_MULTIPLIER_SL", 1.5)),
+            default_atr_multiplier_tp=risk_cfg.get("default_atr_multiplier_tp", getattr(settings, "DEFAULT_ATR_MULTIPLIER_TP", 2.5)),
+            trailing_stop_enabled=risk_cfg.get("trailing_stop_enabled", getattr(settings, "TRAILING_STOP_ENABLED", True)),
+            allow_ai_close_signals=risk_cfg.get("allow_ai_close_signals", getattr(settings, "ALLOW_AI_CLOSE_SIGNALS", True)),
+            auto_liquidate_on_drawdown=risk_cfg.get("auto_liquidate_on_drawdown", getattr(settings, "AUTO_LIQUIDATE_ON_DRAWDOWN", False))
         )
 
         # Telemetrie & State Cache
@@ -246,12 +251,14 @@ class TradingAgentOrchestrator:
                     self.log(f"Trade abgelehnt durch Risikomanager: {reason}", "WARNING", "RISK")
 
             elif decision.action == TradeAction.CLOSE:
-                # Schließe offene Positionen für dieses Instrument
-                for p in open_positions:
-                    if p.instrument == instrument:
-                        closed_pos = await self.broker.close_position(p.id, reason="AGENT_SIGNAL")
-                        self.memory.record_closed_trade(closed_pos, thesis=decision.thesis_summary)
-                        self.log(f"Position {p.id} durch KI Signal geschlossen. PnL={closed_pos.realized_pnl} EUR", "INFO", "EXECUTION")
+                if self.risk_manager.allow_ai_close_signals:
+                    for p in open_positions:
+                        if p.instrument == instrument:
+                            closed_pos = await self.broker.close_position(p.id, reason="AGENT_SIGNAL")
+                            self.memory.record_closed_trade(closed_pos, thesis=decision.thesis_summary)
+                            self.log(f"Position {p.id} durch KI Signal geschlossen. PnL={closed_pos.realized_pnl} EUR", "INFO", "EXECUTION")
+                else:
+                    logger.debug(f"Gemini CLOSE Signal für {instrument} ignoriert (Vorzeitige KI-Exits deaktiviert).")
 
         except Exception as e:
             self.log(f"Fehler im Scan-Zyklus für {instrument}: {e}", "ERROR", "ANALYSIS")

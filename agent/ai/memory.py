@@ -1,10 +1,11 @@
 import json
 import logging
+import os
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 
-from agent.core.models import Position, TradePerformanceStats, PositionStatus
+from agent.core.models import Position, TradePerformanceStats, PositionStatus, PositionDirection
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +19,8 @@ class AgentMemory:
     def __init__(self, storage_path: Optional[str] = None):
         if storage_path:
             self.storage_path = Path(storage_path)
+        elif os.environ.get("PYTEST_CURRENT_TEST"):
+            self.storage_path = Path(__file__).resolve().parent.parent.parent / "data" / "test_trade_memory.json"
         else:
             self.storage_path = Path(__file__).resolve().parent.parent.parent / "data" / "trade_memory.json"
         
@@ -41,18 +44,27 @@ class AgentMemory:
         except Exception as e:
             logger.error(f"Fehler beim Speichern der Memory-Datei: {e}")
 
+    def clear_memory(self):
+        """Leert den Trade-Verlauf und speichert die leere Historie ab."""
+        self.trade_logs = []
+        self._save_memory()
+        logger.info("AgentMemory: Trade-Historie erfolgreich zurückgesetzt.")
+
     def record_closed_trade(self, position: Position, thesis: str = ""):
+        dir_val = position.direction.value if hasattr(position.direction, "value") else str(position.direction)
+        close_t = position.close_time or (datetime.now(timezone.utc).isoformat() + "Z")
+        
         trade_entry = {
             "id": position.id,
             "instrument": position.instrument,
-            "direction": position.direction.value,
+            "direction": dir_val,
             "units": position.units,
             "entry_price": position.entry_price,
             "exit_price": position.current_price,
             "realized_pnl": position.realized_pnl,
             "open_time": position.open_time,
-            "close_time": position.close_time or datetime.utcnow().isoformat(),
-            "close_reason": position.close_reason,
+            "close_time": close_t,
+            "close_reason": position.close_reason or "CLOSED",
             "thesis": thesis
         }
         self.trade_logs.append(trade_entry)
@@ -96,6 +108,8 @@ class AgentMemory:
 
         lines = []
         for t in recent:
-            pnl_str = f"+{t['realized_pnl']} EUR" if t['realized_pnl'] >= 0 else f"{t['realized_pnl']} EUR"
+            pnl_val = t.get("realized_pnl", 0)
+            pnl_str = f"+{pnl_val}" if pnl_val >= 0 else f"{pnl_val}"
             lines.append(f"[{t['instrument']} {t['direction']}]: PnL={pnl_str} ({t.get('close_reason', 'CLOSED')})")
+        
         return " | ".join(lines)

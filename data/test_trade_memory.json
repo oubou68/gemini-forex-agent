@@ -1,0 +1,80 @@
+[
+  {
+    "id": "SIM-AAD781A7",
+    "instrument": "EUR_USD",
+    "direction": "BUY",
+    "units": 93457,
+    "entry_price": 1.08412,
+    "exit_price": 1.084,
+    "realized_pnl": -11.21,
+    "open_time": "2026-09-01T21:19:27.145369Z",
+    "close_time": "2026-09-01T21:19:27.145369Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp ausgel\u00f6st."
+  },
+  {
+    "id": "stk_41396846",
+    "instrument": "HON",
+    "direction": "BUY",
+    "units": 247,
+    "entry_price": 202.33,
+    "exit_price": 202.33,
+    "realized_pnl": 0.0,
+    "open_time": "2026-09-01T21:19:32.841825Z",
+    "close_time": "2026-09-01T21:19:32.841825Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp f\u00fcr Aktien ausgel\u00f6st."
+  },
+  {
+    "id": "stk_ba598092",
+    "instrument": "AAPL",
+    "direction": "BUY",
+    "units": 219,
+    "entry_price": 227.3,
+    "exit_price": 227.3,
+    "realized_pnl": 0.0,
+    "open_time": "2026-09-01T21:19:38.825160Z",
+    "close_time": "2026-09-01T21:19:38.825160Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp f\u00fcr Aktien ausgel\u00f6st."
+  },
+  {
+    "id": "SIM-221088AB",
+    "instrument": "EUR_USD",
+    "direction": "BUY",
+    "units": 100000,
+    "entry_price": 1.08835,
+    "exit_price": 1.08823,
+    "realized_pnl": -12.0,
+    "open_time": "2026-09-01T21:20:20.518826Z",
+    "close_time": "2026-09-01T21:20:20.518826Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp ausgel\u00f6st."
+  },
+  {
+    "id": "stk_77d33596",
+    "instrument": "CPRT",
+    "direction": "BUY",
+    "units": 961,
+    "entry_price": 52.1,
+    "exit_price": 52.1,
+    "realized_pnl": 0.0,
+    "open_time": "2026-09-01T21:20:26.088845Z",
+    "close_time": "2026-09-01T21:20:26.088845Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp f\u00fcr Aktien ausgel\u00f6st."
+  },
+  {
+    "id": "stk_36cb9a51",
+    "instrument": "AAPL",
+    "direction": "BUY",
+    "units": 222,
+    "entry_price": 224.66,
+    "exit_price": 224.66,
+    "realized_pnl": 0.0,
+    "open_time": "2026-09-01T21:20:34.677288Z",
+    "close_time": "2026-09-01T21:20:34.677288Z",
+    "close_reason": "EMERGENCY_CLOSE",
+    "thesis": "Manueller Notstopp f\u00fcr Aktien ausgel\u00f6st."
+  }
+]

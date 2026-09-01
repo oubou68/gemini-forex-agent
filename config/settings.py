@@ -53,7 +53,16 @@ class Settings(BaseSettings):
     STOCK_SCAN_INTERVAL_SECONDS: int = Field(default=10)
     STOCK_RISK_PERCENT_PER_TRADE: float = Field(default=1.0)
     STOCK_MAX_DAILY_DRAWDOWN_PERCENT: float = Field(default=3.0)
-    STOCK_MAX_OPEN_POSITIONS: int = Field(default=3)
+    STOCK_MAX_OPEN_POSITIONS: int = Field(default=20)
+    
+    # Advanced Risk & Guardrail Configuration
+    ALLOW_AI_CLOSE_SIGNALS: bool = Field(default=True, description="Allow Gemini to send premature CLOSE orders before SL/TP")
+    AUTO_LIQUIDATE_ON_DRAWDOWN: bool = Field(default=False, description="Auto-close all active trades when daily drawdown limit is hit")
+    DEFAULT_ATR_MULTIPLIER_SL: float = Field(default=1.5, description="Stop-Loss distance ATR multiplier")
+    DEFAULT_ATR_MULTIPLIER_TP: float = Field(default=2.5, description="Take-Profit target ATR multiplier")
+    MIN_RISK_REWARD_RATIO: float = Field(default=1.5, description="Minimum RRR required for trade execution")
+    BREAKEVEN_TRIGGER_R: float = Field(default=1.0, description="R profit multiple to move Stop-Loss to Breakeven")
+    TRAILING_STOP_ENABLED: bool = Field(default=True, description="Enable Breakeven and Trailing Stop updates")
     
     # Server
     SERVER_HOST: str = Field(default="0.0.0.0")
