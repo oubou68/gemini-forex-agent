@@ -5,13 +5,14 @@ from pathlib import Path
 from typing import List, Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Body
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Body, Request, Response, Depends, Query
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from agent.core.multi_agent_manager import MultiAgentManager
+from agent.security.auth import auth_manager
 from config.settings import settings
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -45,6 +46,7 @@ app.add_middleware(
 )
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
+TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
 
@@ -67,15 +69,200 @@ async def broadcast_bot_telemetry(bot_type: str, telemetry_data: dict):
             active_websockets.remove(ws)
 
 
+@app.get("/login", response_class=HTMLResponse)
+async def get_login_page(request: Request):
+    """Serves standalone login page or redirects to / if already logged in."""
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+    elif "aura_session" in request.cookies:
+        token = request.cookies["aura_session"].strip()
+
+    if token and auth_manager.verify_token(token):
+        return RedirectResponse(
+            url="/",
+            status_code=303,
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate"}
+        )
+
+    login_file = TEMPLATES_DIR / "login.html"
+    if login_file.exists():
+        return FileResponse(
+            str(login_file),
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate"}
+        )
+    return HTMLResponse("<h1>AURA QUANT AI Login</h1>")
+
+
+@app.get("/index.html")
+async def redirect_index():
+    return RedirectResponse(url="/", status_code=301)
+
+
 @app.get("/", response_class=HTMLResponse)
-async def get_index():
-    index_file = STATIC_DIR / "index.html"
+async def get_index(request: Request):
+    """Serves the trading cockpit ONLY if authenticated; redirects to /login otherwise."""
+    if settings.AUTH_ENABLED:
+        token = None
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        elif "aura_session" in request.cookies:
+            token = request.cookies["aura_session"].strip()
+
+        user = auth_manager.verify_token(token) if token else None
+        if not user:
+            return RedirectResponse(
+                url="/login",
+                status_code=303,
+                headers={"Cache-Control": "no-store, no-cache, must-revalidate"}
+            )
+
+    index_file = TEMPLATES_DIR / "index.html"
     if index_file.exists():
-        return FileResponse(str(index_file))
+        return FileResponse(
+            str(index_file),
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate"}
+        )
     return HTMLResponse("<h1>Gemini Dual Agent UI Loading...</h1>")
 
 
-@app.get("/api/status")
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+
+class GoogleAuthRequest(BaseModel):
+    credential: Optional[str] = None
+    id_token: Optional[str] = None
+
+
+async def require_auth(request: Request) -> dict:
+    """Verifies that incoming request has a valid session token (cookie or Bearer header)."""
+    if not settings.AUTH_ENABLED:
+        return {"username": settings.AUTH_USERNAME, "email": settings.GOOGLE_ALLOWED_EMAIL, "role": "admin"}
+
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+    elif "aura_session" in request.cookies:
+        token = request.cookies["aura_session"].strip()
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Nicht authentifiziert. Bitte einloggen.")
+
+    user = auth_manager.verify_token(token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Ungültige oder abgelaufene Sitzung.")
+
+    return user
+
+
+@app.get("/api/auth/config")
+async def get_auth_config():
+    """Returns public authentication parameters."""
+    return {
+        "auth_enabled": settings.AUTH_ENABLED,
+        "google_client_id": settings.GOOGLE_CLIENT_ID,
+        "google_allowed_email": settings.GOOGLE_ALLOWED_EMAIL
+    }
+
+
+@app.get("/api/auth/status")
+async def get_auth_status(request: Request):
+    """Checks current session status and returns user identity."""
+    if not settings.AUTH_ENABLED:
+        return {
+            "authenticated": True,
+            "user": {"username": settings.AUTH_USERNAME, "email": settings.GOOGLE_ALLOWED_EMAIL, "role": "admin"}
+        }
+
+    token = None
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+    elif "aura_session" in request.cookies:
+        token = request.cookies["aura_session"].strip()
+
+    user = auth_manager.verify_token(token) if token else None
+    if not user:
+        return {"authenticated": False, "user": None}
+
+    return {"authenticated": True, "user": user}
+
+
+@app.post("/api/auth/login")
+async def login(credentials: LoginRequest, response: Response):
+    """Plain username and password login."""
+    user = auth_manager.authenticate_local(credentials.username, credentials.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Ungültiger Benutzername oder Passwort.")
+
+    token = auth_manager.create_token(user)
+    max_age = settings.AUTH_SESSION_EXPIRE_HOURS * 3600
+    response.set_cookie(
+        key="aura_session",
+        value=token,
+        max_age=max_age,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        path="/"
+    )
+    return {
+        "status": "authenticated",
+        "token": token,
+        "user": user
+    }
+
+
+@app.post("/api/auth/google")
+async def google_auth(payload: GoogleAuthRequest, response: Response):
+    """Google Identity verification strictly enforced for oubou68@gmail.com."""
+    token_str = payload.credential or payload.id_token
+    if not token_str:
+        raise HTTPException(status_code=400, detail="Google Token / Credential fehlt.")
+
+    try:
+        user = auth_manager.authenticate_google(token_str)
+    except PermissionError as e:
+        logger.warning(f"Google Login abgewiesen: {e}")
+        raise HTTPException(status_code=403, detail=str(e))
+    except ValueError as e:
+        logger.warning(f"Google Token ungültig: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Unerwarteter Google Auth Fehler: {e}")
+        raise HTTPException(status_code=500, detail="Google Authentifizierung fehlgeschlagen.")
+
+    token = auth_manager.create_token(user)
+    max_age = settings.AUTH_SESSION_EXPIRE_HOURS * 3600
+    response.set_cookie(
+        key="aura_session",
+        value=token,
+        max_age=max_age,
+        httponly=True,
+        samesite="lax",
+        secure=False,
+        path="/"
+    )
+    return {
+        "status": "authenticated",
+        "token": token,
+        "user": user
+    }
+
+
+@app.post("/api/auth/logout")
+async def logout(response: Response):
+    """Terminates session and clears cookie."""
+    response.delete_cookie(key="aura_session", path="/")
+    return {"status": "logged_out"}
+
+
+@app.get("/api/status", dependencies=[Depends(require_auth)])
 async def get_status(bot_type: Optional[str] = None):
     if bot_type == "forex":
         tel = await agent_manager.forex_agent.get_telemetry()
@@ -86,7 +273,7 @@ async def get_status(bot_type: Optional[str] = None):
     return await agent_manager.get_all_telemetry()
 
 
-@app.get("/api/candles")
+@app.get("/api/candles", dependencies=[Depends(require_auth)])
 async def get_candles(bot_type: str = "forex", instrument: Optional[str] = None, count: int = 120):
     if bot_type == "stock":
         symbol = instrument or agent_manager.stock_agent.current_symbol
@@ -97,18 +284,18 @@ async def get_candles(bot_type: str = "forex", instrument: Optional[str] = None,
     return [c.model_dump() for c in candles]
 
 
-@app.get("/api/stock/universe")
+@app.get("/api/stock/universe", dependencies=[Depends(require_auth)])
 async def get_stock_universe():
     return agent_manager.stock_agent.get_universe_catalog()
 
 
-@app.get("/api/stock/screener")
+@app.get("/api/stock/screener", dependencies=[Depends(require_auth)])
 async def get_stock_screener():
     candidates = await agent_manager.stock_agent.screen_market_universe()
     return [c.model_dump() for c in candidates]
 
 
-@app.get("/api/trades/history")
+@app.get("/api/trades/history", dependencies=[Depends(require_auth)])
 async def get_trade_history(bot_type: Optional[str] = None, limit: int = 50):
     if bot_type == "stock":
         tel = await agent_manager.stock_agent.get_telemetry()
@@ -125,7 +312,7 @@ async def get_trade_history(bot_type: Optional[str] = None, limit: int = 50):
     }
 
 
-@app.post("/api/control/start")
+@app.post("/api/control/start", dependencies=[Depends(require_auth)])
 async def start_agent(payload: dict = Body(default={})):
     bot = payload.get("bot_type", "all")
     await agent_manager.start_bot(bot)
@@ -136,7 +323,7 @@ async def start_agent(payload: dict = Body(default={})):
     }
 
 
-@app.post("/api/control/stop")
+@app.post("/api/control/stop", dependencies=[Depends(require_auth)])
 async def stop_agent(payload: dict = Body(default={})):
     bot = payload.get("bot_type", "all")
     await agent_manager.stop_bot(bot)
@@ -147,7 +334,7 @@ async def stop_agent(payload: dict = Body(default={})):
     }
 
 
-@app.post("/api/control/instrument")
+@app.post("/api/control/instrument", dependencies=[Depends(require_auth)])
 async def set_instrument(payload: dict = Body(...)):
     bot_type = payload.get("bot_type", "forex")
     inst = payload.get("instrument", "EUR_USD")
@@ -159,7 +346,7 @@ async def set_instrument(payload: dict = Body(...)):
         return {"status": "updated", "bot_type": "forex", "current_instrument": agent_manager.forex_agent.current_instrument}
 
 
-@app.post("/api/control/mode")
+@app.post("/api/control/mode", dependencies=[Depends(require_auth)])
 async def set_mode(payload: dict = Body(...)):
     bot_type = payload.get("bot_type", "forex")
     mode = payload.get("mode", "simulator")
@@ -171,14 +358,14 @@ async def set_mode(payload: dict = Body(...)):
         return {"status": "updated", "bot_type": "forex", "mode": agent_manager.forex_agent.mode}
 
 
-@app.post("/api/control/emergency-close")
+@app.post("/api/control/emergency-close", dependencies=[Depends(require_auth)])
 async def emergency_close(payload: dict = Body(default={})):
     bot_type = payload.get("bot_type")
     results = await agent_manager.emergency_close_all(bot_type)
     return {"status": "success", "closed_positions": results}
 
 
-@app.post("/api/control/manual-order")
+@app.post("/api/control/manual-order", dependencies=[Depends(require_auth)])
 async def manual_order(payload: dict = Body(...)):
     bot_type = payload.get("bot_type", "forex")
     direction = payload.get("direction", "BUY")
@@ -194,7 +381,7 @@ async def manual_order(payload: dict = Body(...)):
     return {"status": "executed", "bot_type": bot_type, "position": pos.model_dump()}
 
 
-@app.post("/api/config/keys")
+@app.post("/api/config/keys", dependencies=[Depends(require_auth)])
 async def update_keys(payload: dict = Body(...)):
     gemini_key = payload.get("gemini_api_key")
     gemini_restrict_trading_hours = payload.get("gemini_restrict_trading_hours")
@@ -241,7 +428,7 @@ async def update_keys(payload: dict = Body(...)):
     return {"status": "keys_updated"}
 
 
-@app.post("/api/config/risk")
+@app.post("/api/config/risk", dependencies=[Depends(require_auth)])
 async def update_risk_config(payload: dict = Body(...)):
     """Aktualisiert Risikomanagement- und Exit-Regeln live zur Laufzeit."""
     risk_pct = payload.get("risk_per_trade_pct")
@@ -290,7 +477,7 @@ async def update_risk_config(payload: dict = Body(...)):
     return {"status": "risk_config_updated"}
 
 
-@app.post("/api/trades/clear")
+@app.post("/api/trades/clear", dependencies=[Depends(require_auth)])
 async def clear_trade_history(payload: dict = Body(default={})):
     """Leert die Trade-Historie für einen oder beide Bots."""
     bot_type = payload.get("bot_type", "all")
@@ -305,7 +492,21 @@ async def clear_trade_history(payload: dict = Body(default={})):
 
 
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, token: Optional[str] = Query(default=None)):
+    session_cookie = websocket.cookies.get("aura_session")
+
+    if settings.AUTH_ENABLED:
+        user = None
+        if token:
+            user = auth_manager.verify_token(token)
+        if not user and session_cookie:
+            user = auth_manager.verify_token(session_cookie)
+
+        if not user:
+            logger.warning("Unauthorisierter WebSocket-Verbindungsversuch abgewiesen.")
+            await websocket.close(code=1008, reason="Unauthorized")
+            return
+
     await websocket.accept()
     active_websockets.append(websocket)
 

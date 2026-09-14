@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AURA QUANT AI • Anmeldung & Sicherheit</title>
+  
+  <!-- Favicon Set -->
+  <link rel="icon" type="image/svg+xml" href="/static/images/favicon.svg">
+  <link rel="alternate icon" href="/static/images/favicon.svg">
+  <link rel="apple-touch-icon" href="/static/images/aura_app_icon.jpg">
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <link rel="stylesheet" href="/static/css/style.css?v=20260914_2">
+  
+  <!-- Google Identity Services SDK -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+  <style>
+    body.login-page {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-primary);
+      position: relative;
+      overflow-x: hidden;
+      margin: 0;
+      padding: 24px;
+    }
+
+    .login-nav-top {
+      position: absolute;
+      top: 24px;
+      right: 28px;
+      z-index: 10;
+    }
+
+    .login-container {
+      position: relative;
+      z-index: 2;
+      width: 100%;
+      max-width: 440px;
+    }
+
+    .login-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 24px;
+      padding: 36px 30px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 30px var(--border-glow);
+      position: relative;
+    }
+
+    .login-glow-bg {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 480px;
+      height: 480px;
+      background: radial-gradient(circle, rgba(2, 132, 199, 0.18) 0%, rgba(124, 58, 237, 0.1) 45%, transparent 70%);
+      filter: blur(60px);
+      pointer-events: none;
+      z-index: 1;
+    }
+  </style>
+</head>
+<body class="light-theme login-page">
+  <div class="login-glow-bg"></div>
+
+  <!-- Top Controls -->
+  <div class="login-nav-top">
+    <button id="btnThemeToggle" class="btn btn-icon theme-toggle-btn" title="Design anpassen (Hell / Dunkel)">
+      <i class="fa-solid fa-moon" id="themeToggleIcon"></i>
+    </button>
+  </div>
+
+  <div class="login-container">
+    <div class="login-card">
+      <!-- Header -->
+      <div class="auth-header">
+        <div class="auth-logo-badge">
+          <img src="/static/images/favicon.svg" alt="AURA Quant AI" class="auth-brand-logo">
+          <div class="auth-brand-aura"></div>
+        </div>
+        <h1 class="auth-title">AURA <span>QUANT AI</span></h1>
+        <p class="auth-subtitle">Autonomous Dual-Engine Trading OS</p>
+        <div class="auth-security-pill">
+          <i class="fa-solid fa-shield-halved"></i>
+          <span>Quant Guard • Enterprise Session Security</span>
+        </div>
+      </div>
+
+      <!-- Alert Box -->
+      <div class="auth-alert" id="authAlert" style="display: none;">
+        <i class="fa-solid fa-circle-exclamation auth-alert-icon"></i>
+        <span class="auth-alert-message" id="authAlertMsg"></span>
+      </div>
+
+      <!-- Google Ident Section -->
+      <div class="auth-section">
+        <div class="section-label">
+          <i class="fa-brands fa-google"></i>
+          <span>Google Identity Single Sign-On</span>
+        </div>
+
+        <!-- Strict Email Notice -->
+        <div class="google-restriction-banner">
+          <i class="fa-solid fa-user-lock"></i>
+          <span>Exklusiv autorisiert für: <strong>oubou68@gmail.com</strong></span>
+        </div>
+
+        <div class="google-btn-wrapper">
+          <div id="g_id_onload"
+               data-client_id=""
+               data-context="signin"
+               data-ux_mode="popup"
+               data-callback="handleGoogleCredentialResponse"
+               data-auto_prompt="false">
+          </div>
+          <div class="g_id_signin"
+               data-type="standard"
+               data-shape="pill"
+               data-theme="outline"
+               data-text="signin_with"
+               data-size="large"
+               data-logo_alignment="left"
+               data-width="100%">
+          </div>
+
+          <button type="button" class="btn-google-custom" id="btnGoogleCustom">
+            <svg class="google-svg-icon" viewBox="0 0 24 24" width="20" height="20">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+            </svg>
+            <span>Mit Google Ident anmelden</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Divider -->
+      <div class="auth-divider">
+        <span>ODER MIT ANMELDEDATEN</span>
+      </div>
+
+      <!-- Plain Login Form -->
+      <form class="auth-form" id="loginForm" autocomplete="on">
+        <div class="form-group auth-field">
+          <label for="loginUsername">
+            <i class="fa-solid fa-user"></i> Benutzername
+          </label>
+          <div class="input-with-icon">
+            <input type="text" id="loginUsername" name="username" value="admin" required autocomplete="username" class="form-input">
+          </div>
+        </div>
+
+        <div class="form-group auth-field">
+          <label for="loginPassword">
+            <i class="fa-solid fa-key"></i> Passwort
+          </label>
+          <div class="input-with-icon">
+            <input type="password" id="loginPassword" name="password" placeholder="Passwort eingeben..." required autocomplete="current-password" class="form-input">
+            <button type="button" class="btn-toggle-password" id="btnTogglePassword" title="Passwort anzeigen/verbergen">
+              <i class="fa-solid fa-eye" id="iconTogglePassword"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="auth-options">
+          <label class="checkbox-label" style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="checkRememberMe" checked>
+            <span>Angemeldet bleiben</span>
+          </label>
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-auth-submit" id="btnLoginSubmit">
+          <i class="fa-solid fa-arrow-right-to-bracket" id="btnLoginIcon"></i>
+          <span id="btnLoginText">Trading-Terminal öffnen</span>
+          <div class="spinner-small" id="btnLoginSpinner" style="display: none;"></div>
+        </button>
+      </form>
+
+      <!-- Footer -->
+      <div class="auth-footer">
+        <span><i class="fa-solid fa-lock"></i> Verschlüsselte Verbindung • HMAC-SHA256 Token</span>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let googleClientId = "";
+    const loginForm = document.getElementById("loginForm");
+    const loginUsername = document.getElementById("loginUsername");
+    const loginPassword = document.getElementById("loginPassword");
+    const btnTogglePassword = document.getElementById("btnTogglePassword");
+    const iconTogglePassword = document.getElementById("iconTogglePassword");
+    const btnLoginSubmit = document.getElementById("btnLoginSubmit");
+    const btnLoginText = document.getElementById("btnLoginText");
+    const btnLoginIcon = document.getElementById("btnLoginIcon");
+    const btnLoginSpinner = document.getElementById("btnLoginSpinner");
+    const authAlert = document.getElementById("authAlert");
+    const authAlertMsg = document.getElementById("authAlertMsg");
+    const btnGoogleCustom = document.getElementById("btnGoogleCustom");
+    const checkRememberMe = document.getElementById("checkRememberMe");
+    const btnThemeToggle = document.getElementById("btnThemeToggle");
+    const themeToggleIcon = document.getElementById("themeToggleIcon");
+
+    // Theme Toggle
+    function applyTheme(isDark) {
+      if (isDark) {
+        document.body.classList.remove("light-theme");
+        document.body.classList.add("dark-theme");
+        if (themeToggleIcon) themeToggleIcon.className = "fa-solid fa-sun";
+      } else {
+        document.body.classList.remove("dark-theme");
+        document.body.classList.add("light-theme");
+        if (themeToggleIcon) themeToggleIcon.className = "fa-solid fa-moon";
+      }
+    }
+
+    if (localStorage.getItem("theme") === "dark") {
+      applyTheme(true);
+    }
+
+    if (btnThemeToggle) {
+      btnThemeToggle.addEventListener("click", () => {
+        const isDark = document.body.classList.contains("dark-theme");
+        applyTheme(!isDark);
+        localStorage.setItem("theme", !isDark ? "dark" : "light");
+      });
+    }
+
+    // Toggle Password Visibility
+    if (btnTogglePassword) {
+      btnTogglePassword.addEventListener("click", () => {
+        const isPass = loginPassword.type === "password";
+        loginPassword.type = isPass ? "text" : "password";
+        iconTogglePassword.className = isPass ? "fa-solid fa-eye-slash" : "fa-solid fa-eye";
+      });
+    }
+
+    function showAlert(msg) {
+      authAlertMsg.textContent = msg;
+      authAlert.style.display = "flex";
+      authAlert.classList.remove("auth-alert-shake");
+      void authAlert.offsetWidth;
+      authAlert.classList.add("auth-alert-shake");
+    }
+
+    function onLoginSuccess(token) {
+      if (token) {
+        if (checkRememberMe && checkRememberMe.checked) {
+          localStorage.setItem("aura_auth_token", token);
+        } else {
+          sessionStorage.setItem("aura_auth_token", token);
+        }
+      }
+      // Redirect to main terminal
+      window.location.href = "/";
+    }
+
+    // Submit plain login
+    loginForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const username = loginUsername.value.trim();
+      const password = loginPassword.value;
+
+      if (!username || !password) {
+        showAlert("Bitte Benutzername und Passwort eingeben.");
+        return;
+      }
+
+      btnLoginSubmit.disabled = true;
+      btnLoginText.textContent = "Authentifiziere...";
+      btnLoginIcon.style.display = "none";
+      btnLoginSpinner.style.display = "inline-block";
+
+      try {
+        const res = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ username, password })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          showAlert(data.detail || "Ungültiger Benutzername oder Passwort.");
+          return;
+        }
+
+        onLoginSuccess(data.token);
+      } catch (err) {
+        console.error("Login Fehler:", err);
+        showAlert("Verbindungsfehler zum Server. Bitte erneut versuchen.");
+      } finally {
+        btnLoginSubmit.disabled = false;
+        btnLoginText.textContent = "Trading-Terminal öffnen";
+        btnLoginIcon.style.display = "inline-block";
+        btnLoginSpinner.style.display = "none";
+      }
+    });
+
+    // Google Identity Callback
+    window.handleGoogleCredentialResponse = async function(response) {
+      if (!response || !response.credential) {
+        showAlert("Google Ident hat keine Anmeldedaten geliefert.");
+        return;
+      }
+
+      try {
+        const res = await fetch("/api/auth/google", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ credential: response.credential })
+        });
+
+        const data = await res.json();
+        if (!res.ok) {
+          showAlert(data.detail || "Google-Authentifizierung verweigert.");
+          return;
+        }
+
+        onLoginSuccess(data.token);
+      } catch (err) {
+        console.error("Google Auth Fehler:", err);
+        showAlert("Fehler bei der Google-Authentifizierung.");
+      }
+    };
+
+    // Google Custom Button Handler
+    btnGoogleCustom.addEventListener("click", () => {
+      if (window.google && window.google.accounts && window.google.accounts.id && googleClientId) {
+        google.accounts.id.prompt();
+        return;
+      }
+
+      if (!googleClientId) {
+        showAlert("Google Client-ID ist noch nicht in .env konfiguriert (GOOGLE_CLIENT_ID). Trage deine OAuth2 Client-ID ein oder nutze Benutzername und Passwort.");
+        return;
+      }
+
+      showAlert("Google Identity Services werden geladen. Bitte einen Moment warten...");
+    });
+
+    // Initialize Auth Config on Load
+    (async function init() {
+      try {
+        const res = await fetch("/api/auth/config");
+        if (res.ok) {
+          const cfg = await res.json();
+          googleClientId = cfg.google_client_id || "";
+          if (googleClientId && window.google && window.google.accounts) {
+            google.accounts.id.initialize({
+              client_id: googleClientId,
+              callback: handleGoogleCredentialResponse
+            });
+            const gDiv = document.getElementById("g_id_onload");
+            if (gDiv) gDiv.setAttribute("data-client_id", googleClientId);
+          }
+        }
+      } catch(e) {
+        console.warn("Config load error:", e);
+      }
+    })();
+  </script>
+</body>
+</html>

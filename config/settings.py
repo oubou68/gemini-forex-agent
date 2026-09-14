@@ -68,6 +68,15 @@ class Settings(BaseSettings):
     SERVER_HOST: str = Field(default="0.0.0.0")
     SERVER_PORT: int = Field(default=8000)
 
+    # Security & Authentication
+    AUTH_ENABLED: bool = Field(default=True, description="Enable authentication for Web and API")
+    AUTH_USERNAME: str = Field(default="admin", description="Admin username for local login")
+    AUTH_PASSWORD: str = Field(default="AuraQuant_2026!TradeSafe", description="Default admin password")
+    AUTH_SECRET_KEY: str = Field(default="aura_quant_sec_token_98f4e2b8109d7c6a5e4c3b2a10", description="Secret key for signing session tokens")
+    AUTH_SESSION_EXPIRE_HOURS: int = Field(default=72, description="Session expiration in hours")
+    GOOGLE_ALLOWED_EMAIL: str = Field(default="oubou68@gmail.com", description="Restricted email address for Google Ident")
+    GOOGLE_CLIENT_ID: str = Field(default="", description="Optional Google OAuth2 Client ID for Google Identity Services")
+
     @model_validator(mode="after")
     def resolve_alpaca_auth_aliases(self) -> "Settings":
         # Resolve Key ID

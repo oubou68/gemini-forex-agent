@@ -1,0 +1,27 @@
+[Unit]
+Description=AURA QUANT AI Autonomous Trading Platform
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/aura-quant
+EnvironmentFile=/opt/aura-quant/.env
+ExecStart=/opt/aura-quant/venv/bin/python run_agent.py --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+KillMode=mixed
+TimeoutStopSec=20
+
+# Resource Protection
+LimitNOFILE=65535
+MemoryHigh=850M
+MemoryMax=950M
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aura-quant
+
+[Install]
+WantedBy=multi-user.target

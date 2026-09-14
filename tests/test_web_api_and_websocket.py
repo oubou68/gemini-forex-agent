@@ -4,6 +4,8 @@ from web.app import app, agent_manager
 
 
 client = TestClient(app)
+_login_res = client.post("/api/auth/login", json={"username": "admin", "password": "AuraQuant_2026!TradeSafe"})
+auth_token = _login_res.json()["token"]
 
 
 @pytest.mark.asyncio
@@ -117,7 +119,7 @@ async def test_websocket_lifecycle_and_messages():
     await agent_manager.forex_agent.set_mode("simulator")
     await agent_manager.stock_agent.set_mode("simulator")
 
-    with client.websocket_connect("/ws") as websocket:
+    with client.websocket_connect(f"/ws?token={auth_token}") as websocket:
         # 1. Receive INITIAL_STATE
         init_data = websocket.receive_json()
         assert init_data["type"] == "INITIAL_STATE"

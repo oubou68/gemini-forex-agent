@@ -17,6 +17,8 @@
   <link rel="stylesheet" href="/static/css/style.css">
   <!-- TradingView Lightweight Charts -->
   <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+  <!-- Google Identity Services (GIS) Client SDK -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body class="light-theme">
   <!-- Top Navigation Header -->
@@ -90,6 +92,17 @@
         </button>
         <button id="btnOpenSettings" class="btn btn-icon" title="Einstellungen (Gemini, Oanda, Alpaca)">
           <i class="fa-solid fa-sliders"></i>
+        </button>
+      </div>
+
+      <!-- Authenticated User Profile & Logout -->
+      <div class="user-session-widget" id="userSessionWidget" style="display: flex;">
+        <div class="user-profile-badge" id="userProfileBadge" title="Angemeldet als">
+          <i class="fa-solid fa-circle-user user-avatar-icon" id="userAvatarIcon"></i>
+          <span class="user-display-email" id="userDisplayEmail">admin</span>
+        </div>
+        <button id="btnLogout" class="btn btn-icon btn-logout" title="Abmelden (Sitzung beenden)">
+          <i class="fa-solid fa-arrow-right-from-bracket"></i>
         </button>
       </div>
     </div>
@@ -560,8 +573,7 @@
         <button class="btn btn-primary" id="btnSaveSettings">Speichern & Übernehmen</button>
       </div>
     </div>
-  </div>
-
   <script src="/static/js/app.js"></script>
 </body>
 </html>
+

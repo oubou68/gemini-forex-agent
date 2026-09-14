@@ -178,10 +178,45 @@ const inputSlAtr = document.getElementById("inputSlAtr");
 const inputTpAtr = document.getElementById("inputTpAtr");
 const inputMinRrr = document.getElementById("inputMinRrr");
 const checkAllowAiClose = document.getElementById("checkAllowAiClose");
-const checkAutoLiquidateDrawdown = document.getElementById("checkAutoLiquidateDrawdown");
 const btnClearHistory = document.getElementById("btnClearHistory");
 
-// Theme Support (Light & Friendly / Dark)
+// Authentication State & User Session
+let isAuthenticated = true;
+let authToken = localStorage.getItem("aura_auth_token") || sessionStorage.getItem("aura_auth_token") || null;
+let currentUser = null;
+
+const userSessionWidget = document.getElementById("userSessionWidget");
+const userDisplayEmail = document.getElementById("userDisplayEmail");
+const btnLogout = document.getElementById("btnLogout");
+
+function getAuthHeaders() {
+  const headers = { "Content-Type": "application/json" };
+  const token = authToken || localStorage.getItem("aura_auth_token") || sessionStorage.getItem("aura_auth_token");
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  return headers;
+}
+
+async function authFetch(url, options = {}) {
+  const headers = options.headers ? { ...options.headers } : {};
+  const token = authToken || localStorage.getItem("aura_auth_token") || sessionStorage.getItem("aura_auth_token");
+  if (token && !headers["Authorization"]) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  options.headers = headers;
+  options.credentials = "same-origin";
+
+  const response = await fetch(url, options);
+  if (response.status === 401) {
+    console.warn("Sitzung ungültig oder abgelaufen (401). Leite zu /login weiter...");
+    localStorage.removeItem("aura_auth_token");
+    sessionStorage.removeItem("aura_auth_token");
+    window.location.href = "/login";
+    throw new Error("Nicht authentifiziert (401)");
+  }
+  return response;
+}
 function isDarkThemeActive() {
   return document.body.classList.contains("dark-theme");
 }
@@ -617,8 +652,17 @@ function switchBotTab(targetBot) {
 
 // WebSocket Connection
 function connectWebSocket() {
+  if (!isAuthenticated) return;
+
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  const wsUrl = `${protocol}//${window.location.host}/ws`;
+  const token = authToken || localStorage.getItem("aura_auth_token") || sessionStorage.getItem("aura_auth_token") || "";
+  const tokenQuery = token ? `?token=${encodeURIComponent(token)}` : "";
+  const wsUrl = `${protocol}//${window.location.host}/ws${tokenQuery}`;
+
+  if (socket) {
+    try { socket.close(); } catch(e) {}
+    socket = null;
+  }
 
   socket = new WebSocket(wsUrl);
 
@@ -670,9 +714,22 @@ function connectWebSocket() {
     }
   };
 
-  socket.onclose = () => {
-    console.log("WebSocket getrennt. Reconnecting in 3s...");
-    setTimeout(connectWebSocket, 3000);
+  socket.onclose = (event) => {
+    if (event.code === 1008) {
+      console.warn("WebSocket getrennt: Authentifizierung erforderlich (1008).");
+      localStorage.removeItem("aura_auth_token");
+      sessionStorage.removeItem("aura_auth_token");
+      window.location.href = "/login";
+      return;
+    }
+    if (isAuthenticated) {
+      console.log("WebSocket getrennt. Reconnecting in 3s...");
+      setTimeout(connectWebSocket, 3000);
+    }
+  };
+
+  socket.onerror = (err) => {
+    console.warn("WebSocket Fehler:", err);
   };
 }
 
@@ -1070,7 +1127,7 @@ async function toggleAgentState() {
   const currentRunning = botStates[activeBot].isRunning;
   const endpoint = currentRunning ? "/api/control/stop" : "/api/control/start";
   try {
-    await fetch(endpoint, {
+    await authFetch(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ bot_type: activeBot })
@@ -1089,7 +1146,7 @@ async function triggerScanNow() {
 async function triggerEmergencyClose() {
   if (confirm(`Möchtest du wirklich alle offenen Positionen für ${activeBot.toUpperCase()} sofort schließen?`)) {
     try {
-      await fetch("/api/control/emergency-close", {
+      await authFetch("/api/control/emergency-close", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ bot_type: activeBot })
@@ -1102,7 +1159,7 @@ async function triggerEmergencyClose() {
 
 async function closeSinglePosition(posId) {
   try {
-    await fetch("/api/control/emergency-close", {
+    await authFetch("/api/control/emergency-close", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ bot_type: activeBot })
@@ -1115,7 +1172,7 @@ async function closeSinglePosition(posId) {
 async function executeManualOrder(direction) {
   const riskPct = parseFloat(manualRiskSlider.value);
   try {
-    await fetch("/api/control/manual-order", {
+    await authFetch("/api/control/manual-order", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -1170,12 +1227,12 @@ async function saveSettings() {
 
   try {
     await Promise.all([
-      fetch("/api/config/keys", {
+      authFetch("/api/config/keys", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(keysPayload)
       }),
-      fetch("/api/config/risk", {
+      authFetch("/api/config/risk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(riskPayload)
@@ -1193,7 +1250,7 @@ async function saveSettings() {
 async function clearTradeHistory() {
   if (!confirm("Möchtest du die bisherige Trade-Historie wirklich zurücksetzen?")) return;
   try {
-    const res = await fetch("/api/trades/clear", {
+    const res = await authFetch("/api/trades/clear", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ bot_type: activeBot })
@@ -1214,6 +1271,53 @@ async function clearTradeHistory() {
   }
 }
 
+// ==========================================
+// Authentication Handlers & Lifecycle
+// ==========================================
+
+async function handleLogout() {
+  try {
+    await fetch("/api/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: getAuthHeaders()
+    });
+  } catch (e) {
+    console.warn("Logout Fehler:", e);
+  }
+  authToken = null;
+  currentUser = null;
+  localStorage.removeItem("aura_auth_token");
+  sessionStorage.removeItem("aura_auth_token");
+  window.location.href = "/login";
+}
+
+async function checkAuthStatus() {
+  try {
+    const res = await fetch("/api/auth/status", {
+      headers: getAuthHeaders(),
+      credentials: "same-origin"
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.authenticated && data.user) {
+        currentUser = data.user;
+        if (userDisplayEmail) {
+          userDisplayEmail.textContent = data.user.email || data.user.username || "admin";
+        }
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn("Status-Prüfung:", e);
+  }
+
+  // Session expired or invalid -> redirect to login
+  localStorage.removeItem("aura_auth_token");
+  sessionStorage.removeItem("aura_auth_token");
+  window.location.href = "/login";
+}
+
 // Event Listeners Setup
 document.addEventListener("DOMContentLoaded", () => {
   // Load saved theme preference if any
@@ -1231,7 +1335,15 @@ document.addEventListener("DOMContentLoaded", () => {
   initChart();
   populateSearchDatalist();
   renderInstrumentPills();
+
+  // Connect live WebSocket and verify session in background
   connectWebSocket();
+  checkAuthStatus();
+
+  // Bind Logout Event
+  if (btnLogout) {
+    btnLogout.addEventListener("click", handleLogout);
+  }
 
   if (btnThemeToggle) {
     btnThemeToggle.addEventListener("click", toggleTheme);
@@ -1288,3 +1400,4 @@ document.addEventListener("DOMContentLoaded", () => {
     btnClearHistory.addEventListener("click", clearTradeHistory);
   }
 });
+

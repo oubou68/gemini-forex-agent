@@ -7,6 +7,7 @@ from agent.core.models import (
 )
 
 client = TestClient(app)
+client.post("/api/auth/login", json={"username": "admin", "password": "AuraQuant_2026!TradeSafe"})
 
 
 def test_risk_manager_configurable_parameters():
