@@ -1,11 +1,12 @@
 import logging
 import asyncio
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
 import requests
 
 from agent.broker.base_broker import BaseBroker
+from agent.broker.alpaca_rate_limiter import shared_alpaca_rate_limiter, SimpleTTLCache
 from agent.core.models import (
     Candle, MarketPrice, OrderRequest, Position,
     PositionDirection, PositionStatus, AccountSummary
@@ -31,9 +32,15 @@ def _utc_iso() -> str:
 class AlpacaClient(BaseBroker):
     """
     Vollständige Implementierung der Alpaca Markets v2 REST API für US-Aktien.
-    Unterstützt Paper- und Live-Trading, echte Stop-Loss-Order-Updates via PATCH /v2/orders,
-    täglichen Drawdown-Reset, Symbol-Sanitization und Closed-Trade-Sync.
+    - Nutzt Multi-Symbol Batch-Endpoints (/v2/stocks/bars & /v2/stocks/quotes/latest)
+      sowie gemeinsames Rate-Limiting & TTL-Caching (verhindert 429 Too Many Requests)
+    - Echte Stop-Loss-Order-Updates via PATCH /v2/orders
+    - Täglicher Drawdown-Reset & Closed-Trade-Sync
     """
+
+    BARS_CACHE_TTL_SEC = 25.0
+    QUOTE_CACHE_TTL_SEC = 8.0
+    ACCOUNT_CACHE_TTL_SEC = 5.0
 
     def __init__(self, api_key: str, secret_key: str, environment: str = "paper"):
         self.api_key = api_key
@@ -67,9 +74,23 @@ class AlpacaClient(BaseBroker):
         self._initial_equity: float = 100000.0
         self._daily_start_equity: float = 100000.0
         self._daily_equity_date = datetime.now(timezone.utc).date()
+        self._cache = SimpleTTLCache()
+
+    def _safe_get(self, url: str, params: Optional[Dict[str, Any]] = None) -> Optional[requests.Response]:
+        backed_off, _ = shared_alpaca_rate_limiter.is_backed_off()
+        if backed_off:
+            return None
+        if not shared_alpaca_rate_limiter.acquire(wait=False):
+            return None
+        resp = requests.get(url, headers=self.headers, params=params, timeout=10)
+        if resp.status_code == 429:
+            shared_alpaca_rate_limiter.record_rate_limit(resp.headers.get("Retry-After"))
+            return resp
+        if resp.status_code == 200:
+            shared_alpaca_rate_limiter.record_success()
+        return resp
 
     async def initialize(self) -> bool:
-        """Initialisiert die Verbindung zu Alpaca und validiert die API Keys."""
         if not settings.ALPACA_OAUTH_TOKEN and (not self.api_key or not self.secret_key):
             logger.warning("Alpaca API Key oder Secret Key fehlt. AlpacaClient kann nicht im Live/Paper-Modus initialisiert werden.")
             return False
@@ -86,13 +107,17 @@ class AlpacaClient(BaseBroker):
             return False
 
     async def get_account_summary(self) -> AccountSummary:
-        """Ruft Kontodaten von Alpaca /v2/account ab."""
+        cached = self._cache.get("account:summary", self.ACCOUNT_CACHE_TTL_SEC)
+        if cached is not None:
+            return cached
+
         url = f"{self.base_url}/account"
-
-        def _request():
-            return requests.get(url, headers=self.headers, timeout=10)
-
-        response = await asyncio.to_thread(_request)
+        response = await asyncio.to_thread(self._safe_get, url)
+        if response is None or response.status_code == 429:
+            stale = self._cache.get("account:summary", self.ACCOUNT_CACHE_TTL_SEC, allow_stale=True)
+            if stale is not None:
+                return stale
+            raise Exception("Alpaca Account API Rate Limit (429) ohne Cache.")
         if response.status_code != 200:
             raise Exception(f"Alpaca Account API Fehler ({response.status_code}): {response.text}")
 
@@ -119,7 +144,7 @@ class AlpacaClient(BaseBroker):
             dd = (self._daily_start_equity - equity) / self._daily_start_equity * 100.0
             daily_dd_pct = max(0.0, round(dd, 2))
 
-        return AccountSummary(
+        summary = AccountSummary(
             account_id=account_id,
             currency=currency,
             balance=balance,
@@ -132,55 +157,13 @@ class AlpacaClient(BaseBroker):
             daily_drawdown_pct=daily_dd_pct,
             daily_start_equity=self._daily_start_equity
         )
+        self._cache.set("account:summary", summary)
+        return summary
 
-    async def get_candles(self, instrument: str, granularity: str = "M5", count: int = 100) -> List[Candle]:
-        """Ruft historische Aktien-Kerzendaten (Bars) über Alpaca Market Data v2 ab."""
-        symbol = _sanitize_stock_symbol(instrument)
-
-        tf_map = {
-            "M1": "1Min",
-            "M5": "5Min",
-            "M15": "15Min",
-            "M30": "30Min",
-            "H1": "1Hour",
-            "D": "1Day"
-        }
-        timeframe = tf_map.get(granularity, "5Min")
-        url = f"{self.data_url}/stocks/{symbol}/bars"
-        params = {
-            "timeframe": timeframe,
-            "limit": max(1, min(int(count), 1000)),
-            "adjustment": "all",
-            "feed": self.data_feed
-        }
-
-        def _request():
-            return requests.get(url, headers=self.headers, params=params, timeout=10)
-
-        response = await asyncio.to_thread(_request)
-        if response.status_code != 200:
-            url_alt = f"{self.data_url}/stocks/bars"
-            params_alt = {
-                "symbols": symbol,
-                "timeframe": timeframe,
-                "limit": max(1, min(int(count), 1000)),
-                "feed": self.data_feed
-            }
-
-            def _request_alt():
-                return requests.get(url_alt, headers=self.headers, params=params_alt, timeout=10)
-
-            response = await asyncio.to_thread(_request_alt)
-            if response.status_code != 200:
-                raise Exception(f"Alpaca Bars Fehler ({response.status_code}): {response.text}")
-
-        data = response.json()
-        raw_bars = data.get("bars", [])
-        if isinstance(raw_bars, dict):
-            raw_bars = raw_bars.get(symbol, [])
-
+    @staticmethod
+    def _parse_bars(raw_bars: List[Dict[str, Any]], limit: int) -> List[Candle]:
         candles = []
-        for b in raw_bars:
+        for b in raw_bars[-limit:]:
             t = b.get("t", _utc_iso())
             candles.append(Candle(
                 time=t if t.endswith("Z") else t + "Z",
@@ -191,20 +174,173 @@ class AlpacaClient(BaseBroker):
                 volume=int(b.get("v", 0)),
                 complete=True
             ))
+        return candles
 
+    async def get_multi_candles(
+        self,
+        symbols: List[str],
+        granularity: str = "M5",
+        count: int = 60
+    ) -> Dict[str, List[Candle]]:
+        """Batch-Abruf historischer Aktien-Kerzen (10 Symbole pro Request -> spart 90% API-Calls!)."""
+        clean_syms = [_sanitize_stock_symbol(s) for s in symbols]
+        result: Dict[str, List[Candle]] = {}
+        to_fetch: List[str] = []
+
+        for sym in clean_syms:
+            cached = self._cache.get(f"bars:{sym}:{granularity}", self.BARS_CACHE_TTL_SEC)
+            if cached is not None and len(cached) >= min(count, 20):
+                result[sym] = cached[-count:]
+            else:
+                to_fetch.append(sym)
+
+        if not to_fetch:
+            return result
+
+        tf_map = {"M1": "1Min", "M5": "5Min", "M15": "15Min", "M30": "30Min", "H1": "1Hour", "D": "1Day"}
+        timeframe = tf_map.get(granularity, "5Min")
+        start_iso = (datetime.now(timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        url = f"{self.data_url}/stocks/bars"
+
+        for i in range(0, len(to_fetch), 10):
+            chunk = to_fetch[i:i + 10]
+            params = {
+                "symbols": ",".join(chunk),
+                "timeframe": timeframe,
+                "start": start_iso,
+                "limit": min(len(chunk) * max(count, 60) + 100, 5000),
+                "adjustment": "all",
+                "feed": self.data_feed
+            }
+            response = await asyncio.to_thread(self._safe_get, url, params)
+            if response is None or response.status_code != 200:
+                for sym in chunk:
+                    stale = self._cache.get(f"bars:{sym}:{granularity}", self.BARS_CACHE_TTL_SEC, allow_stale=True)
+                    if stale:
+                        result[sym] = stale[-count:]
+                continue
+
+            bars_map = response.json().get("bars", {})
+            if isinstance(bars_map, dict):
+                for sym in chunk:
+                    parsed = self._parse_bars(bars_map.get(sym, []), max(count, 100))
+                    if parsed:
+                        self._cache.set(f"bars:{sym}:{granularity}", parsed)
+                        result[sym] = parsed[-count:]
+
+        return result
+
+    async def get_multi_prices(self, symbols: List[str]) -> Dict[str, MarketPrice]:
+        """Batch-Abruf aktueller Aktien-Quotes in einem einzigen HTTP-Call."""
+        clean_syms = [_sanitize_stock_symbol(s) for s in symbols]
+        result: Dict[str, MarketPrice] = {}
+        to_fetch: List[str] = []
+
+        for sym in clean_syms:
+            cached = self._cache.get(f"quote:{sym}", self.QUOTE_CACHE_TTL_SEC)
+            if cached is not None:
+                result[sym] = cached
+            else:
+                to_fetch.append(sym)
+
+        if not to_fetch:
+            return result
+
+        url = f"{self.data_url}/stocks/quotes/latest"
+        params = {"symbols": ",".join(to_fetch), "feed": self.data_feed}
+        response = await asyncio.to_thread(self._safe_get, url, params)
+
+        if response is not None and response.status_code == 200:
+            quotes = response.json().get("quotes", {})
+            if isinstance(quotes, dict):
+                for sym in to_fetch:
+                    q = quotes.get(sym, {})
+                    bid = float(q.get("bp", 0.0))
+                    ask = float(q.get("ap", 0.0))
+                    if bid > 0 and ask > 0:
+                        t = q.get("t", _utc_iso())
+                        mp = MarketPrice(
+                            instrument=sym,
+                            time=t if t.endswith("Z") else t + "Z",
+                            bid=round(bid, 2),
+                            ask=round(ask, 2),
+                            spread_pips=round(ask - bid, 2),
+                            mid=round((bid + ask) / 2.0, 2)
+                        )
+                        self._cache.set(f"quote:{sym}", mp)
+                        result[sym] = mp
+
+        for sym in to_fetch:
+            if sym not in result:
+                stale = self._cache.get(f"quote:{sym}", self.QUOTE_CACHE_TTL_SEC, allow_stale=True)
+                if stale is not None:
+                    result[sym] = stale
+
+        return result
+
+    async def get_candles(self, instrument: str, granularity: str = "M5", count: int = 100) -> List[Candle]:
+        symbol = _sanitize_stock_symbol(instrument)
+        cache_key = f"bars:{symbol}:{granularity}"
+        cached = self._cache.get(cache_key, self.BARS_CACHE_TTL_SEC)
+        if cached is not None and len(cached) >= min(count, 20):
+            return cached[-count:]
+
+        tf_map = {"M1": "1Min", "M5": "5Min", "M15": "15Min", "M30": "30Min", "H1": "1Hour", "D": "1Day"}
+        timeframe = tf_map.get(granularity, "5Min")
+        url = f"{self.data_url}/stocks/{symbol}/bars"
+        params = {
+            "timeframe": timeframe,
+            "limit": max(1, min(int(count), 1000)),
+            "adjustment": "all",
+            "feed": self.data_feed
+        }
+
+        response = await asyncio.to_thread(self._safe_get, url, params)
+        if response is None or response.status_code == 429:
+            stale = self._cache.get(cache_key, self.BARS_CACHE_TTL_SEC, allow_stale=True)
+            if stale is not None:
+                return stale[-count:]
+            raise Exception(f"Alpaca Bars Rate Limit (429) für {symbol} — Backoff aktiv.")
+
+        if response.status_code != 200:
+            url_alt = f"{self.data_url}/stocks/bars"
+            params_alt = {
+                "symbols": symbol,
+                "timeframe": timeframe,
+                "limit": max(1, min(int(count), 1000)),
+                "feed": self.data_feed
+            }
+            response = await asyncio.to_thread(self._safe_get, url_alt, params_alt)
+            if response is None or response.status_code != 200:
+                stale = self._cache.get(cache_key, self.BARS_CACHE_TTL_SEC, allow_stale=True)
+                if stale is not None:
+                    return stale[-count:]
+                code = response.status_code if response is not None else 429
+                txt = response.text if response is not None else "Rate limit"
+                raise Exception(f"Alpaca Bars Fehler ({code}): {txt}")
+
+        data = response.json()
+        raw_bars = data.get("bars", [])
+        if isinstance(raw_bars, dict):
+            raw_bars = raw_bars.get(symbol, [])
+
+        candles = self._parse_bars(raw_bars, count)
+        if candles:
+            self._cache.set(cache_key, candles)
         return candles
 
     async def get_current_price(self, instrument: str) -> MarketPrice:
-        """Ruft den aktuellen Bid/Ask-Spread und Mittelkurs für eine Aktie ab."""
         symbol = _sanitize_stock_symbol(instrument)
+        cache_key = f"quote:{symbol}"
+        cached = self._cache.get(cache_key, self.QUOTE_CACHE_TTL_SEC)
+        if cached is not None:
+            return cached
+
         url = f"{self.data_url}/stocks/{symbol}/quotes/latest"
         params = {"feed": self.data_feed}
 
-        def _request():
-            return requests.get(url, headers=self.headers, params=params, timeout=10)
-
-        response = await asyncio.to_thread(_request)
-        if response.status_code == 200:
+        response = await asyncio.to_thread(self._safe_get, url, params)
+        if response is not None and response.status_code == 200:
             data = response.json()
             quote = data.get("quote", {})
             bid = float(quote.get("bp", 0.0))
@@ -214,7 +350,7 @@ class AlpacaClient(BaseBroker):
             if bid > 0 and ask > 0:
                 mid = round((bid + ask) / 2.0, 2)
                 spread_cents = round(ask - bid, 2)
-                return MarketPrice(
+                mp = MarketPrice(
                     instrument=symbol,
                     time=t if t.endswith("Z") else t + "Z",
                     bid=round(bid, 2),
@@ -222,33 +358,39 @@ class AlpacaClient(BaseBroker):
                     spread_pips=spread_cents,
                     mid=mid
                 )
+                self._cache.set(cache_key, mp)
+                return mp
 
-        trade_url = f"{self.data_url}/stocks/{symbol}/trades/latest"
+        stale = self._cache.get(cache_key, self.QUOTE_CACHE_TTL_SEC, allow_stale=True)
+        if stale is not None:
+            return stale
 
-        def _trade_request():
-            return requests.get(trade_url, headers=self.headers, params=params, timeout=10)
+        backed_off, _ = shared_alpaca_rate_limiter.is_backed_off()
+        if not backed_off:
+            trade_url = f"{self.data_url}/stocks/{symbol}/trades/latest"
+            t_res = await asyncio.to_thread(self._safe_get, trade_url, params)
+            if t_res is not None and t_res.status_code == 200:
+                t_data = t_res.json().get("trade", {})
+                p = float(t_data.get("p", 100.0))
+                spread_est = 0.02
+                mp = MarketPrice(
+                    instrument=symbol,
+                    time=_utc_iso(),
+                    bid=round(p - spread_est / 2, 2),
+                    ask=round(p + spread_est / 2, 2),
+                    spread_pips=spread_est,
+                    mid=round(p, 2)
+                )
+                self._cache.set(cache_key, mp)
+                return mp
 
-        t_res = await asyncio.to_thread(_trade_request)
-        if t_res.status_code == 200:
-            t_data = t_res.json().get("trade", {})
-            p = float(t_data.get("p", 100.0))
-            spread_est = 0.02
-            return MarketPrice(
-                instrument=symbol,
-                time=_utc_iso(),
-                bid=round(p - spread_est / 2, 2),
-                ask=round(p + spread_est / 2, 2),
-                spread_pips=spread_est,
-                mid=round(p, 2)
-            )
-
-        raise Exception(f"Konnte aktuellen Preis für Aktie {symbol} nicht abrufen: {response.text}")
+        err_text = response.text if response is not None else "Rate limit backoff active"
+        raise Exception(f"Konnte aktuellen Preis für Aktie {symbol} nicht abrufen: {err_text}")
 
     async def place_order(self, order: OrderRequest) -> Position:
-        """Platziert eine neue Aktien-Order bei Alpaca (Market oder Bracket mit SL & TP)."""
         symbol = _sanitize_stock_symbol(order.instrument)
         side = "buy" if order.direction == PositionDirection.BUY else "sell"
-        qty = max(1, order.units)
+        qty = max(1, int(order.units))
 
         payload: Dict[str, Any] = {
             "symbol": symbol,
@@ -272,12 +414,16 @@ class AlpacaClient(BaseBroker):
         url = f"{self.base_url}/orders"
 
         def _request():
+            shared_alpaca_rate_limiter.acquire(wait=True)
             return requests.post(url, headers=self.headers, json=payload, timeout=10)
 
         response = await asyncio.to_thread(_request)
+        if response.status_code == 429:
+            shared_alpaca_rate_limiter.record_rate_limit(response.headers.get("Retry-After"))
         if response.status_code not in (200, 201):
             raise Exception(f"Alpaca Order Fehler ({response.status_code}): {response.text}")
 
+        self._cache.invalidate_prefix("account:")
         data = response.json()
         order_id = data.get("id", f"alpaca_{datetime.now(timezone.utc).timestamp()}")
         filled_price = float(data.get("filled_avg_price") or order.price or (await self.get_current_price(symbol)).mid)
@@ -301,7 +447,6 @@ class AlpacaClient(BaseBroker):
         return pos
 
     async def close_position(self, position_id: str, reason: str = "MANUAL") -> Position:
-        """Schließt eine offene Aktienposition bei Alpaca (DELETE /v2/positions/{symbol})."""
         pos_to_close = next(
             (p for p in self.open_positions_cache if p.id == position_id or p.instrument == position_id),
             None
@@ -311,12 +456,16 @@ class AlpacaClient(BaseBroker):
         url = f"{self.base_url}/positions/{symbol}"
 
         def _request():
+            shared_alpaca_rate_limiter.acquire(wait=True)
             return requests.delete(url, headers=self.headers, timeout=10)
 
         response = await asyncio.to_thread(_request)
+        if response.status_code == 429:
+            shared_alpaca_rate_limiter.record_rate_limit(response.headers.get("Retry-After"))
         if response.status_code not in (200, 204, 404):
             logger.warning(f"Alpaca Position Close Warnung: {response.text}")
 
+        self._cache.invalidate_prefix("account:")
         curr_price_info = await self.get_current_price(symbol)
         curr_price = curr_price_info.mid
 
@@ -362,10 +511,6 @@ class AlpacaClient(BaseBroker):
         )
 
     async def update_stop_loss(self, position_id: str, new_sl: float) -> Position:
-        """
-        Passt das Stop-Loss-Level einer bestehenden Aktienposition direkt bei Alpaca an
-        (PATCH /v2/orders/{stop_order_id} für das zugehörige offene Stop-Order-Leg).
-        """
         target_pos = next((p for p in self.open_positions_cache if p.id == position_id), None)
         if not target_pos:
             raise Exception(f"Position {position_id} nicht im lokalen Cache gefunden.")
@@ -376,12 +521,8 @@ class AlpacaClient(BaseBroker):
         try:
             orders_url = f"{self.base_url}/orders"
             params = {"status": "open", "symbols": symbol}
-
-            def _list_orders():
-                return requests.get(orders_url, headers=self.headers, params=params, timeout=10)
-
-            res = await asyncio.to_thread(_list_orders)
-            if res.status_code == 200:
+            res = await asyncio.to_thread(self._safe_get, orders_url, params)
+            if res is not None and res.status_code == 200:
                 open_orders = res.json()
                 stop_order = next(
                     (o for o in open_orders if o.get("type") in ("stop", "stop_limit")),
@@ -391,6 +532,7 @@ class AlpacaClient(BaseBroker):
                     patch_url = f"{self.base_url}/orders/{stop_order['id']}"
 
                     def _patch_order():
+                        shared_alpaca_rate_limiter.acquire(wait=True)
                         return requests.patch(
                             patch_url,
                             headers=self.headers,
@@ -410,14 +552,13 @@ class AlpacaClient(BaseBroker):
         return target_pos
 
     async def get_open_positions(self) -> List[Position]:
-        """Ruft alle aktiven Aktienpositionen via Alpaca GET /v2/positions ab."""
+        cached = self._cache.get("account:positions", self.ACCOUNT_CACHE_TTL_SEC)
+        if cached is not None:
+            return cached
+
         url = f"{self.base_url}/positions"
-
-        def _request():
-            return requests.get(url, headers=self.headers, timeout=10)
-
-        response = await asyncio.to_thread(_request)
-        if response.status_code != 200:
+        response = await asyncio.to_thread(self._safe_get, url)
+        if response is None or response.status_code != 200:
             return self.open_positions_cache
 
         data = response.json()
@@ -463,7 +604,6 @@ class AlpacaClient(BaseBroker):
             )
             live_positions.append(pos)
 
-        # Erkenne broker-seitig geschlossene Bracket-Positionen (SL/TP-Ausführung)
         for old_sym, old_pos in prev_by_sym.items():
             if old_sym not in live_syms and not any(c.id == old_pos.id for c in self.closed_positions_cache):
                 old_pos.status = PositionStatus.CLOSED
@@ -474,8 +614,8 @@ class AlpacaClient(BaseBroker):
                 self.closed_positions_cache.append(old_pos)
 
         self.open_positions_cache = live_positions
+        self._cache.set("account:positions", self.open_positions_cache)
         return self.open_positions_cache
 
     async def get_closed_positions(self) -> List[Position]:
-        """Gibt die Liste der geschlossenen Trades zurück."""
         return self.closed_positions_cache

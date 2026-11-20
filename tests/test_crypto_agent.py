@@ -308,3 +308,59 @@ async def test_crypto_rest_api_and_websocket():
         assert resp["bot_type"] == "crypto"
         assert resp["instrument"] == "AVAX/USD"
         assert len(resp["data"]) > 0
+
+
+@pytest.mark.asyncio
+@patch("requests.get")
+async def test_alpaca_crypto_batch_caching_and_429_fallback(mock_get):
+    from agent.broker.alpaca_rate_limiter import shared_alpaca_rate_limiter
+    shared_alpaca_rate_limiter.reset()
+
+    client = AlpacaCryptoClient(api_key="PKTEST", secret_key="SKTEST", environment="paper")
+
+    # 1. Batch quotes for all 20 cryptos -> exactly 1 HTTP request!
+    quotes_resp = MagicMock()
+    quotes_resp.status_code = 200
+    quotes_resp.json.return_value = {
+        "quotes": {sym: {"bp": 100.0, "ap": 100.1, "t": "2026-11-20T22:00:00Z"} for sym in TOP_20_EXPECTED}
+    }
+    mock_get.return_value = quotes_resp
+    prices = await client.get_multi_prices(TOP_20_EXPECTED)
+    assert len(prices) == 20
+    assert mock_get.call_count == 1
+
+    # Subsequent single quote call hits TTL cache -> still 1 HTTP request total!
+    btc_p = await client.get_current_price("BTC/USD")
+    assert btc_p.mid > 0
+    assert mock_get.call_count == 1
+
+    # 2. Batch bars for all 20 cryptos -> 2 HTTP requests (chunks of 10), populates cache!
+    bars_resp = MagicMock()
+    bars_resp.status_code = 200
+    bars_resp.json.return_value = {
+        "bars": {
+            sym: [
+                {"t": f"2026-11-20T21:{i:02d}:00Z", "o": 100.0, "h": 101.0, "l": 99.5, "c": 100.5, "v": 50}
+                for i in range(25)
+            ]
+            for sym in TOP_20_EXPECTED
+        }
+    }
+    mock_get.return_value = bars_resp
+    bars_map = await client.get_multi_candles(TOP_20_EXPECTED, granularity="M5", count=25)
+    assert len(bars_map) == 20
+    assert mock_get.call_count == 3  # 1 quote batch + 2 bar batches
+
+    # 3. Simulate HTTP 429 after cache expires -> activates backoff and falls back cleanly to stale cache!
+    client._cache._store["bars:BTC/USD:M5"] = (0.0, bars_map["BTC/USD"])
+    resp_429 = MagicMock()
+    resp_429.status_code = 429
+    resp_429.headers = {"Retry-After": "15"}
+    resp_429.text = '{"message": "too many requests."}'
+    mock_get.return_value = resp_429
+
+    stale_candles = await client.get_candles("BTC/USD", granularity="M5", count=25)
+    assert len(stale_candles) == 25
+    backed_off, remaining = shared_alpaca_rate_limiter.is_backed_off()
+    assert backed_off is True and remaining > 0
+    shared_alpaca_rate_limiter.reset()

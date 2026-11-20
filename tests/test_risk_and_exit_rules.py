@@ -37,6 +37,7 @@ def test_risk_manager_configurable_parameters():
 async def test_rest_risk_config_and_clear_history():
     await agent_manager.forex_agent.set_mode("simulator")
     await agent_manager.stock_agent.set_mode("simulator")
+    await agent_manager.crypto_agent.set_mode("simulator")
 
     # 1. Update risk configuration via REST
     res = client.post("/api/config/risk", json={

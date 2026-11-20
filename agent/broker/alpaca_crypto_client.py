@@ -1,11 +1,12 @@
 import logging
 import asyncio
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict, Any
 import requests
 
 from agent.broker.base_broker import BaseBroker
+from agent.broker.alpaca_rate_limiter import shared_alpaca_rate_limiter, SimpleTTLCache
 from agent.analysis.crypto_indicators import _crypto_precision
 from agent.core.models import (
     Candle, MarketPrice, OrderRequest, Position,
@@ -42,11 +43,15 @@ def _utc_iso() -> str:
 class AlpacaCryptoClient(BaseBroker):
     """
     Alpaca Markets Crypto REST Client (Market Data v1beta3 + Spot Trading v2).
-    - Nutzt /v1beta3/crypto/{loc}/bars, /latest/quotes und /latest/trades
-    - Platziert fraktionale Spot-Orders via /v2/orders (order_class=simple, time_in_force=gtc)
-    - Verwaltet synthetische Stop-Loss- & Take-Profit-Levels im Client, da Alpaca Crypto
-      keine nativen Bracket-Orders unterstützt.
+    - Nutzt Multi-Symbol Batch-Abfragen (/v1beta3/crypto/{loc}/bars & /latest/quotes) ->
+      20 Kryptos in nur 2 HTTP-Calls statt 40!
+    - Integriertes TTL-Caching + gemeinsamer Rate-Limiter + 429 Stale-Cache-Fallback
+    - Platziert fraktionale Spot-Orders via /v2/orders (simple + gtc)
     """
+
+    BARS_CACHE_TTL_SEC = 25.0
+    QUOTE_CACHE_TTL_SEC = 8.0
+    ACCOUNT_CACHE_TTL_SEC = 5.0
 
     def __init__(self, api_key: str, secret_key: str, environment: str = "paper", loc: Optional[str] = None):
         self.api_key = api_key
@@ -80,6 +85,22 @@ class AlpacaCryptoClient(BaseBroker):
         self._initial_equity: float = 100000.0
         self._daily_start_equity: float = 100000.0
         self._daily_equity_date = datetime.now(timezone.utc).date()
+        self._cache = SimpleTTLCache()
+
+    def _safe_get(self, url: str, params: Optional[Dict[str, Any]] = None) -> Optional[requests.Response]:
+        """Rate-limitierter GET-Aufruf mit automatischer 429-Erkennung."""
+        backed_off, _ = shared_alpaca_rate_limiter.is_backed_off()
+        if backed_off:
+            return None
+        if not shared_alpaca_rate_limiter.acquire(wait=False):
+            return None
+        resp = requests.get(url, headers=self.headers, params=params, timeout=10)
+        if resp.status_code == 429:
+            shared_alpaca_rate_limiter.record_rate_limit(resp.headers.get("Retry-After"))
+            return resp
+        if resp.status_code == 200:
+            shared_alpaca_rate_limiter.record_success()
+        return resp
 
     async def initialize(self) -> bool:
         if not settings.ALPACA_OAUTH_TOKEN and (not self.api_key or not self.secret_key):
@@ -97,12 +118,17 @@ class AlpacaCryptoClient(BaseBroker):
             return False
 
     async def get_account_summary(self) -> AccountSummary:
+        cached = self._cache.get("account:summary", self.ACCOUNT_CACHE_TTL_SEC)
+        if cached is not None:
+            return cached
+
         url = f"{self.base_url}/account"
-
-        def _request():
-            return requests.get(url, headers=self.headers, timeout=10)
-
-        response = await asyncio.to_thread(_request)
+        response = await asyncio.to_thread(self._safe_get, url)
+        if response is None or response.status_code == 429:
+            stale = self._cache.get("account:summary", self.ACCOUNT_CACHE_TTL_SEC, allow_stale=True)
+            if stale is not None:
+                return stale
+            raise Exception("Alpaca Crypto Account API Rate Limit (429) ohne Cache.")
         if response.status_code != 200:
             raise Exception(f"Alpaca Crypto Account API Fehler ({response.status_code}): {response.text}")
 
@@ -128,7 +154,7 @@ class AlpacaCryptoClient(BaseBroker):
             dd = (self._daily_start_equity - equity) / self._daily_start_equity * 100.0
             daily_dd_pct = max(0.0, round(dd, 2))
 
-        return AccountSummary(
+        summary = AccountSummary(
             account_id=account_id,
             currency="USD",
             balance=round(cash, 2),
@@ -141,39 +167,15 @@ class AlpacaCryptoClient(BaseBroker):
             daily_drawdown_pct=daily_dd_pct,
             daily_start_equity=self._daily_start_equity
         )
+        self._cache.set("account:summary", summary)
+        return summary
 
-    async def get_candles(self, instrument: str, granularity: str = "M5", count: int = 100) -> List[Candle]:
-        symbol = normalize_crypto_symbol(instrument)
-        tf_map = {
-            "M1": "1Min",
-            "M5": "5Min",
-            "M15": "15Min",
-            "M30": "30Min",
-            "H1": "1Hour",
-            "D": "1Day"
-        }
-        timeframe = tf_map.get(granularity, "5Min")
-        url = f"{self.crypto_data_url}/bars"
-        params = {
-            "symbols": symbol,
-            "timeframe": timeframe,
-            "limit": max(1, min(int(count), 1000))
-        }
-
-        def _request():
-            return requests.get(url, headers=self.headers, params=params, timeout=10)
-
-        response = await asyncio.to_thread(_request)
-        if response.status_code != 200:
-            raise Exception(f"Alpaca Crypto Bars Fehler ({response.status_code}): {response.text}")
-
-        bars_map = response.json().get("bars", {})
-        raw_bars = bars_map.get(symbol, []) if isinstance(bars_map, dict) else []
-
-        candles = []
-        for b in raw_bars:
+    @staticmethod
+    def _parse_raw_bars(raw_bars: List[Dict[str, Any]], limit: int) -> List[Candle]:
+        candles: List[Candle] = []
+        for b in raw_bars[-limit:]:
             c_val = float(b.get("c", 0.0))
-            prec = _crypto_precision(c_val)
+            prec = _crypto_precision(c_val if c_val > 0 else 1.0)
             t = b.get("t", _utc_iso())
             candles.append(Candle(
                 time=t if t.endswith("Z") else t + "Z",
@@ -186,16 +188,181 @@ class AlpacaCryptoClient(BaseBroker):
             ))
         return candles
 
+    @staticmethod
+    def _tf_and_start(granularity: str, count: int) -> tuple[str, str]:
+        tf_map = {
+            "M1": ("1Min", 1),
+            "M5": ("5Min", 5),
+            "M15": ("15Min", 15),
+            "M30": ("30Min", 30),
+            "H1": ("1Hour", 60),
+            "D": ("1Day", 1440),
+        }
+        tf_str, mins = tf_map.get(granularity, ("5Min", 5))
+        # Genug Historie zurückfragen (inkl. kleinem Puffer für dünne Nachtkerzen)
+        lookback_mins = max(mins * int(count * 1.4), 60)
+        start_dt = datetime.now(timezone.utc) - timedelta(minutes=lookback_mins)
+        return tf_str, start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    async def get_multi_candles(
+        self,
+        symbols: List[str],
+        granularity: str = "M5",
+        count: int = 60
+    ) -> Dict[str, List[Candle]]:
+        """
+        Batch-Abruf historischer Krypto-Kerzen für bis zu 20 Coins in minimalen HTTP-Calls
+        (10 Symbole pro Request -> 2 Calls statt 20!) und Befüllung des lokalen TTL-Caches.
+        """
+        normalized = [normalize_crypto_symbol(s) for s in symbols]
+        result: Dict[str, List[Candle]] = {}
+        to_fetch: List[str] = []
+
+        for sym in normalized:
+            cache_key = f"bars:{sym}:{granularity}"
+            cached = self._cache.get(cache_key, self.BARS_CACHE_TTL_SEC)
+            if cached is not None and len(cached) >= min(count, 20):
+                result[sym] = cached[-count:]
+            else:
+                to_fetch.append(sym)
+
+        if not to_fetch:
+            return result
+
+        timeframe, start_iso = self._tf_and_start(granularity, count)
+        url = f"{self.crypto_data_url}/bars"
+
+        # Chunk in Gruppen zu 10 Symbolen (max 10 * 100 = 1000 Bars pro Call)
+        for i in range(0, len(to_fetch), 10):
+            chunk = to_fetch[i:i + 10]
+            params = {
+                "symbols": ",".join(chunk),
+                "timeframe": timeframe,
+                "start": start_iso,
+                "limit": min(len(chunk) * max(count, 60) + 100, 5000),
+            }
+            response = await asyncio.to_thread(self._safe_get, url, params)
+            if response is None or response.status_code != 200:
+                # Fallback auf Stale-Cache für jeden Coin im Chunk
+                for sym in chunk:
+                    stale = self._cache.get(f"bars:{sym}:{granularity}", self.BARS_CACHE_TTL_SEC, allow_stale=True)
+                    if stale:
+                        result[sym] = stale[-count:]
+                continue
+
+            bars_map = response.json().get("bars", {})
+            if isinstance(bars_map, dict):
+                for sym in chunk:
+                    raw = bars_map.get(sym, [])
+                    parsed = self._parse_raw_bars(raw, max(count, 100))
+                    if parsed:
+                        self._cache.set(f"bars:{sym}:{granularity}", parsed)
+                        result[sym] = parsed[-count:]
+
+        return result
+
+    async def get_multi_prices(self, symbols: List[str]) -> Dict[str, MarketPrice]:
+        """
+        Batch-Abruf aktueller Bid/Ask-Quotes für alle Top-20 Kryptos in einem einzigen HTTP-Call!
+        """
+        normalized = [normalize_crypto_symbol(s) for s in symbols]
+        result: Dict[str, MarketPrice] = {}
+        to_fetch: List[str] = []
+
+        for sym in normalized:
+            cached = self._cache.get(f"quote:{sym}", self.QUOTE_CACHE_TTL_SEC)
+            if cached is not None:
+                result[sym] = cached
+            else:
+                to_fetch.append(sym)
+
+        if not to_fetch:
+            return result
+
+        url = f"{self.crypto_data_url}/latest/quotes"
+        params = {"symbols": ",".join(to_fetch)}
+        response = await asyncio.to_thread(self._safe_get, url, params)
+
+        if response is not None and response.status_code == 200:
+            quotes = response.json().get("quotes", {})
+            if isinstance(quotes, dict):
+                for sym in to_fetch:
+                    q = quotes.get(sym, {})
+                    bid = float(q.get("bp", 0.0))
+                    ask = float(q.get("ap", 0.0))
+                    if bid > 0 and ask > 0:
+                        mid = (bid + ask) / 2.0
+                        prec = _crypto_precision(mid)
+                        spread_pct = round(((ask - bid) / max(mid, 1e-12)) * 100.0, 4)
+                        t = q.get("t", _utc_iso())
+                        mp = MarketPrice(
+                            instrument=sym,
+                            time=t if t.endswith("Z") else t + "Z",
+                            bid=round(bid, prec),
+                            ask=round(ask, prec),
+                            spread_pips=spread_pct,
+                            mid=round(mid, prec)
+                        )
+                        self._cache.set(f"quote:{sym}", mp)
+                        result[sym] = mp
+
+        # Stale-Cache Fallback für fehlende Symbole
+        for sym in to_fetch:
+            if sym not in result:
+                stale = self._cache.get(f"quote:{sym}", self.QUOTE_CACHE_TTL_SEC, allow_stale=True)
+                if stale is not None:
+                    result[sym] = stale
+
+        return result
+
+    async def get_candles(self, instrument: str, granularity: str = "M5", count: int = 100) -> List[Candle]:
+        symbol = normalize_crypto_symbol(instrument)
+        cache_key = f"bars:{symbol}:{granularity}"
+        cached = self._cache.get(cache_key, self.BARS_CACHE_TTL_SEC)
+        if cached is not None and len(cached) >= min(count, 20):
+            return cached[-count:]
+
+        timeframe, start_iso = self._tf_and_start(granularity, count)
+        url = f"{self.crypto_data_url}/bars"
+        params = {
+            "symbols": symbol,
+            "timeframe": timeframe,
+            "start": start_iso,
+            "limit": max(1, min(int(count), 1000))
+        }
+
+        response = await asyncio.to_thread(self._safe_get, url, params)
+        if response is None or response.status_code == 429:
+            stale = self._cache.get(cache_key, self.BARS_CACHE_TTL_SEC, allow_stale=True)
+            if stale is not None:
+                return stale[-count:]
+            raise Exception(f"Alpaca Crypto Bars Rate Limit (429) für {symbol} — warte auf Backoff-Ablauf.")
+
+        if response.status_code != 200:
+            stale = self._cache.get(cache_key, self.BARS_CACHE_TTL_SEC, allow_stale=True)
+            if stale is not None:
+                return stale[-count:]
+            raise Exception(f"Alpaca Crypto Bars Fehler ({response.status_code}): {response.text}")
+
+        bars_map = response.json().get("bars", {})
+        raw_bars = bars_map.get(symbol, []) if isinstance(bars_map, dict) else []
+        candles = self._parse_raw_bars(raw_bars, count)
+        if candles:
+            self._cache.set(cache_key, candles)
+        return candles
+
     async def get_current_price(self, instrument: str) -> MarketPrice:
         symbol = normalize_crypto_symbol(instrument)
+        cache_key = f"quote:{symbol}"
+        cached = self._cache.get(cache_key, self.QUOTE_CACHE_TTL_SEC)
+        if cached is not None:
+            return cached
+
         url = f"{self.crypto_data_url}/latest/quotes"
         params = {"symbols": symbol}
 
-        def _request():
-            return requests.get(url, headers=self.headers, params=params, timeout=10)
-
-        response = await asyncio.to_thread(_request)
-        if response.status_code == 200:
+        response = await asyncio.to_thread(self._safe_get, url, params)
+        if response is not None and response.status_code == 200:
             quotes = response.json().get("quotes", {})
             q = quotes.get(symbol, {})
             bid = float(q.get("bp", 0.0))
@@ -205,38 +372,46 @@ class AlpacaCryptoClient(BaseBroker):
                 prec = _crypto_precision(mid)
                 spread_pct = round(((ask - bid) / max(mid, 1e-12)) * 100.0, 4)
                 t = q.get("t", _utc_iso())
-                return MarketPrice(
+                mp = MarketPrice(
                     instrument=symbol,
                     time=t if t.endswith("Z") else t + "Z",
                     bid=round(bid, prec),
                     ask=round(ask, prec),
-                    spread_pips=spread_pct,  # Spread in %
+                    spread_pips=spread_pct,
                     mid=round(mid, prec)
                 )
+                self._cache.set(cache_key, mp)
+                return mp
 
-        # Fallback: latest trades
-        t_url = f"{self.crypto_data_url}/latest/trades"
+        # Fallback: Stale-Cache bei Rate-Limit oder leerem Quote
+        stale = self._cache.get(cache_key, self.QUOTE_CACHE_TTL_SEC, allow_stale=True)
+        if stale is not None:
+            return stale
 
-        def _t_req():
-            return requests.get(t_url, headers=self.headers, params=params, timeout=10)
+        # Fallback: latest trades (nur wenn kein Rate-Limit aktiv)
+        backed_off, _ = shared_alpaca_rate_limiter.is_backed_off()
+        if not backed_off:
+            t_url = f"{self.crypto_data_url}/latest/trades"
+            t_res = await asyncio.to_thread(self._safe_get, t_url, params)
+            if t_res is not None and t_res.status_code == 200:
+                trade = t_res.json().get("trades", {}).get(symbol, {})
+                p = float(trade.get("p", 0.0))
+                if p > 0:
+                    prec = _crypto_precision(p)
+                    half = p * 0.0008
+                    mp = MarketPrice(
+                        instrument=symbol,
+                        time=_utc_iso(),
+                        bid=round(p - half, prec),
+                        ask=round(p + half, prec),
+                        spread_pips=0.16,
+                        mid=round(p, prec)
+                    )
+                    self._cache.set(cache_key, mp)
+                    return mp
 
-        t_res = await asyncio.to_thread(_t_req)
-        if t_res.status_code == 200:
-            trade = t_res.json().get("trades", {}).get(symbol, {})
-            p = float(trade.get("p", 0.0))
-            if p > 0:
-                prec = _crypto_precision(p)
-                half = p * 0.0008
-                return MarketPrice(
-                    instrument=symbol,
-                    time=_utc_iso(),
-                    bid=round(p - half, prec),
-                    ask=round(p + half, prec),
-                    spread_pips=0.16,
-                    mid=round(p, prec)
-                )
-
-        raise Exception(f"Konnte aktuellen Alpaca Krypto-Preis für {symbol} nicht abrufen: {response.text}")
+        err_text = response.text if response is not None else "Rate limit backoff active"
+        raise Exception(f"Konnte aktuellen Alpaca Krypto-Preis für {symbol} nicht abrufen: {err_text}")
 
     async def place_order(self, order: OrderRequest) -> Position:
         """Platziert eine fraktionale Alpaca Crypto Spot-Order (simple + gtc)."""
@@ -259,12 +434,16 @@ class AlpacaCryptoClient(BaseBroker):
         url = f"{self.base_url}/orders"
 
         def _request():
+            shared_alpaca_rate_limiter.acquire(wait=True)
             return requests.post(url, headers=self.headers, json=payload, timeout=10)
 
         response = await asyncio.to_thread(_request)
+        if response.status_code == 429:
+            shared_alpaca_rate_limiter.record_rate_limit(response.headers.get("Retry-After"))
         if response.status_code not in (200, 201):
             raise Exception(f"Alpaca Crypto Order Fehler ({response.status_code}): {response.text}")
 
+        self._cache.invalidate_prefix("account:")
         data = response.json()
         order_id = data.get("id", f"alpcry_{datetime.now(timezone.utc).timestamp()}")
         filled_price = float(data.get("filled_avg_price") or order.price or (await self.get_current_price(symbol)).ask)
@@ -309,13 +488,17 @@ class AlpacaCryptoClient(BaseBroker):
         url = f"{self.base_url}/orders"
 
         def _request():
+            shared_alpaca_rate_limiter.acquire(wait=True)
             return requests.post(url, headers=self.headers, json=payload, timeout=10)
 
         response = await asyncio.to_thread(_request)
+        if response.status_code == 429:
+            shared_alpaca_rate_limiter.record_rate_limit(response.headers.get("Retry-After"))
         if response.status_code not in (200, 201):
             logger.warning(f"Alpaca Crypto Partial Scale-Out fehlgeschlagen ({pos.instrument}): {response.text}")
             return None
 
+        self._cache.invalidate_prefix("account:")
         curr_price = (await self.get_current_price(pos.instrument)).bid
         realized = round((curr_price - pos.entry_price) * sell_qty, 2)
         pos.units = round(max(0.0, pos.units - sell_qty), 8)
@@ -351,12 +534,16 @@ class AlpacaCryptoClient(BaseBroker):
         url = f"{self.base_url}/positions/{api_sym}"
 
         def _request():
+            shared_alpaca_rate_limiter.acquire(wait=True)
             return requests.delete(url, headers=self.headers, timeout=10)
 
         response = await asyncio.to_thread(_request)
+        if response.status_code == 429:
+            shared_alpaca_rate_limiter.record_rate_limit(response.headers.get("Retry-After"))
         if response.status_code not in (200, 204, 404):
             logger.warning(f"Alpaca Crypto Close Warnung: {response.text}")
 
+        self._cache.invalidate_prefix("account:")
         curr_price = (await self.get_current_price(symbol)).bid
 
         if pos_to_close:
@@ -397,7 +584,6 @@ class AlpacaCryptoClient(BaseBroker):
         )
 
     async def update_stop_loss(self, position_id: str, new_sl: float) -> Position:
-        """Aktualisiert das synthetische Stop-Loss-Level (überwacht durch Crypto-Orchestrator)."""
         for pos in self.open_positions_cache:
             if pos.id == position_id:
                 prec = _crypto_precision(pos.entry_price)
@@ -406,13 +592,13 @@ class AlpacaCryptoClient(BaseBroker):
         raise Exception(f"Krypto-Position {position_id} nicht gefunden.")
 
     async def get_open_positions(self) -> List[Position]:
+        cached = self._cache.get("account:positions", self.ACCOUNT_CACHE_TTL_SEC)
+        if cached is not None:
+            return cached
+
         url = f"{self.base_url}/positions"
-
-        def _request():
-            return requests.get(url, headers=self.headers, timeout=10)
-
-        response = await asyncio.to_thread(_request)
-        if response.status_code != 200:
+        response = await asyncio.to_thread(self._safe_get, url)
+        if response is None or response.status_code != 200:
             return self.open_positions_cache
 
         data = response.json()
@@ -436,27 +622,28 @@ class AlpacaCryptoClient(BaseBroker):
             unrealized = float(item.get("unrealized_pl", 0.0))
             prec = _crypto_precision(entry or curr or 1.0)
 
-            cached = prev_by_sym.get(sym)
+            cached_pos = prev_by_sym.get(sym)
             pos = Position(
-                id=cached.id if cached else item.get("asset_id", f"alpcry_{sym}"),
+                id=cached_pos.id if cached_pos else item.get("asset_id", f"alpcry_{sym}"),
                 instrument=sym,
                 direction=PositionDirection.BUY,
                 units=round(qty, 8),
                 entry_price=round(entry, prec),
                 current_price=round(curr, prec),
-                highest_price=max(cached.highest_price or entry, curr) if cached else max(entry, curr),
-                stop_loss=cached.stop_loss if cached else None,
-                initial_stop_loss=cached.initial_stop_loss if cached else None,
-                take_profit=cached.take_profit if cached else None,
-                partial_tp_taken=cached.partial_tp_taken if cached else False,
+                highest_price=max(cached_pos.highest_price or entry, curr) if cached_pos else max(entry, curr),
+                stop_loss=cached_pos.stop_loss if cached_pos else None,
+                initial_stop_loss=cached_pos.initial_stop_loss if cached_pos else None,
+                take_profit=cached_pos.take_profit if cached_pos else None,
+                partial_tp_taken=cached_pos.partial_tp_taken if cached_pos else False,
                 unrealized_pnl=round(unrealized, 2),
                 realized_pnl=0.0,
-                open_time=cached.open_time if cached else _utc_iso(),
+                open_time=cached_pos.open_time if cached_pos else _utc_iso(),
                 status=PositionStatus.OPEN
             )
             live_crypto.append(pos)
 
         self.open_positions_cache = live_crypto
+        self._cache.set("account:positions", self.open_positions_cache)
         return self.open_positions_cache
 
     async def get_closed_positions(self) -> List[Position]:

@@ -244,16 +244,30 @@ class CryptoTradingAgentOrchestrator:
     async def screen_crypto_universe(self, limit: int = 10) -> List[StockScreenerCandidate]:
         """
         Paralleler 24/7 Top-20 Krypto-Screener mit BTC-Macro-Regime & Relative-Stärke-Ranking.
+        Nutzt native Multi-Symbol Batch-Endpoints (2–3 HTTP-Calls für alle 20 Coins statt 40!)
+        zur drastischen Reduktion der Alpaca API-Last.
         """
-        await self.update_btc_macro_regime()
         session_name = self.session_analyzer.get_current_session()
+
+        # Batch-Vorladung (falls Broker get_multi_prices / get_multi_candles unterstützt, z.B. AlpacaCryptoClient)
+        batch_prices: Dict[str, MarketPrice] = {}
+        batch_candles: Dict[str, List[Any]] = {}
+        if hasattr(self.broker, "get_multi_prices") and hasattr(self.broker, "get_multi_candles"):
+            batch_prices, batch_candles = await asyncio.gather(
+                self.broker.get_multi_prices(self.symbols),
+                self.broker.get_multi_candles(self.symbols, granularity="M5", count=60),
+            )
+
+        # BTC Macro Regime aus vorgeladenen BTC-Kerzen (0 Extra-Calls!)
+        await self.update_btc_macro_regime()
+
         semaphore = asyncio.Semaphore(8)
 
         async def _eval_coin(sym: str) -> Optional[StockScreenerCandidate]:
             async with semaphore:
                 try:
-                    price = await self.broker.get_current_price(sym)
-                    candles = await self.broker.get_candles(sym, granularity="M5", count=60)
+                    price = batch_prices.get(sym) or await self.broker.get_current_price(sym)
+                    candles = batch_candles.get(sym) or await self.broker.get_candles(sym, granularity="M5", count=60)
                     if not candles or len(candles) < 20:
                         return None
 
@@ -390,7 +404,7 @@ class CryptoTradingAgentOrchestrator:
                 await self.run_scan_cycle(self.current_symbol, update_primary_telemetry=True)
 
                 self._universe_scan_counter += 1
-                if self._universe_scan_counter % 2 == 0:
+                if self._universe_scan_counter % 4 == 0:
                     await self.screen_crypto_universe(limit=10)
                     if settings.MULTI_INSTRUMENT_SCAN_ENABLED:
                         await self._trade_top_crypto_candidates()

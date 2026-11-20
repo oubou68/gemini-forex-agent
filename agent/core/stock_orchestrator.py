@@ -239,7 +239,7 @@ class StockTradingAgentOrchestrator:
 
                 # 2. Multi-Symbol Full-Universe Screener (NASDAQ-100 + Dow Jones 30 + ETFs)
                 self._universe_scan_counter += 1
-                if self._universe_scan_counter % 2 == 0:
+                if self._universe_scan_counter % 4 == 0:
                     await self.screen_market_universe(limit=8)
                     if settings.MULTI_INSTRUMENT_SCAN_ENABLED:
                         await self._trade_top_screener_candidates()
@@ -269,13 +269,21 @@ class StockTradingAgentOrchestrator:
         extra_sample = random.sample(remaining_pool, min(len(remaining_pool), 14))
         sampled_symbols = priority_core + extra_sample
 
+        batch_prices: Dict[str, MarketPrice] = {}
+        batch_candles: Dict[str, List[Candle]] = {}
+        if hasattr(self.broker, "get_multi_prices") and hasattr(self.broker, "get_multi_candles"):
+            batch_prices, batch_candles = await asyncio.gather(
+                self.broker.get_multi_prices(sampled_symbols),
+                self.broker.get_multi_candles(sampled_symbols, granularity="M5", count=60),
+            )
+
         semaphore = asyncio.Semaphore(8)
 
         async def _eval_symbol(sym: str) -> Optional[StockScreenerCandidate]:
             async with semaphore:
                 try:
-                    price = await self.broker.get_current_price(sym)
-                    candles = await self.broker.get_candles(sym, granularity="M5", count=60)
+                    price = batch_prices.get(sym) or await self.broker.get_current_price(sym)
+                    candles = batch_candles.get(sym) or await self.broker.get_candles(sym, granularity="M5", count=60)
                     if not candles or len(candles) < 20:
                         return None
 

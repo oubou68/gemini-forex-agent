@@ -12,8 +12,10 @@ auth_token = _login_res.json()["token"]
 async def test_rest_status_endpoints():
     await agent_manager.forex_agent.set_mode("simulator")
     await agent_manager.stock_agent.set_mode("simulator")
+    await agent_manager.crypto_agent.set_mode("simulator")
     agent_manager.forex_agent.is_running = False
     agent_manager.stock_agent.is_running = False
+    agent_manager.crypto_agent.is_running = False
 
     # All telemetry
     res = client.get("/api/status")
@@ -118,6 +120,7 @@ async def test_rest_control_endpoints():
 async def test_websocket_lifecycle_and_messages():
     await agent_manager.forex_agent.set_mode("simulator")
     await agent_manager.stock_agent.set_mode("simulator")
+    await agent_manager.crypto_agent.set_mode("simulator")
 
     with client.websocket_connect(f"/ws?token={auth_token}") as websocket:
         # 1. Receive INITIAL_STATE
@@ -166,6 +169,7 @@ async def test_websocket_lifecycle_and_messages():
 async def test_rest_trade_history_endpoint():
     await agent_manager.forex_agent.set_mode("simulator")
     await agent_manager.stock_agent.set_mode("simulator")
+    await agent_manager.crypto_agent.set_mode("simulator")
 
     # Place a trade and close it
     pos = await agent_manager.stock_agent.execute_manual_trade("AAPL", "BUY", 1.0)

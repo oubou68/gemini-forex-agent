@@ -7,7 +7,7 @@ from agent.core.models import (
 
 @pytest.mark.asyncio
 async def test_gemini_analyst_heuristic_fallback():
-    analyst = GeminiForexAnalyst(api_key="")  # No key -> heuristic
+    analyst = GeminiForexAnalyst(api_key="", restrict_to_trading_hours=False)  # No key -> heuristic
     
     price = MarketPrice(
         instrument="EUR_USD",

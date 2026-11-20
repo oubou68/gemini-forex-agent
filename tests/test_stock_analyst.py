@@ -7,7 +7,7 @@ from agent.core.models import (
 
 @pytest.mark.asyncio
 async def test_stock_analyst_heuristic_bullish():
-    analyst = GeminiStockAnalyst(api_key="")  # Heuristic fallback
+    analyst = GeminiStockAnalyst(api_key="", restrict_to_trading_hours=False)  # Heuristic fallback
     
     price = MarketPrice(
         instrument="AAPL",
