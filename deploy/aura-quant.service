@@ -4,7 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=auraquant
+Group=auraquant
 WorkingDirectory=/opt/aura-quant
 EnvironmentFile=/opt/aura-quant/.env
 ExecStart=/opt/aura-quant/venv/bin/python run_agent.py --host 0.0.0.0 --port 8000
@@ -12,6 +13,13 @@ Restart=always
 RestartSec=5
 KillMode=mixed
 TimeoutStopSec=20
+
+# Security Sandboxing
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/aura-quant/data
 
 # Resource Protection
 LimitNOFILE=65535

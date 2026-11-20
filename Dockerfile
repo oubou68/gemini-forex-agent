@@ -6,13 +6,18 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
-# Install curl for healthchecks
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+# Install curl for healthchecks & create non-root runtime user
+RUN apt-get update && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd --create-home --shell /bin/bash --uid 10001 appuser
 
 COPY requirements.txt .
 RUN pip install --upgrade pip && pip install -r requirements.txt
 
-COPY . .
+COPY --chown=appuser:appuser . .
+RUN mkdir -p /app/data && chown -R appuser:appuser /app/data
+
+USER appuser
 
 EXPOSE 8000 8080
 

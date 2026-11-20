@@ -33,9 +33,28 @@ async def test_market_universe_screener():
     assert len(candidates) > 0
     top = candidates[0]
     assert top.symbol is not None
-    assert top.index in ("NASDAQ", "DOW", "ETF")
+    assert top.index in ("NASDAQ", "DOW", "ETF", "GROWTH")
     assert top.price > 0
     assert top.score >= 0
+
+
+@pytest.mark.asyncio
+async def test_spacex_anthropic_and_growth_symbols():
+    orch = StockTradingAgentOrchestrator()
+    await orch.set_mode("simulator")
+    await orch.initialize()
+
+    expected = ["SPCX", "ANT", "CRWV", "GEV", "VRT", "TSM", "RKLB", "ASTS", "HOOD", "RDDT", "SOFI", "IONQ"]
+    catalog = orch.get_universe_catalog()
+    assert "innovation_growth" in catalog
+    assert "SPCX" in catalog["watchlist"]
+    assert "ANT" in catalog["watchlist"]
+    for sym in expected:
+        assert sym in catalog["innovation_growth"]
+        price = await orch.broker.get_current_price(sym)
+        assert price.mid > 0
+        candles = await orch.broker.get_candles(sym, count=20)
+        assert len(candles) == 20
 
 
 @pytest.mark.asyncio

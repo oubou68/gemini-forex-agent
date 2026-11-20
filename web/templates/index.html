@@ -28,7 +28,7 @@
         <img src="/static/images/favicon.svg" alt="AURA Quant AI" class="brand-logo-img">
         <div class="logo-text">
           <h1>AURA <span>QUANT AI</span></h1>
-          <span class="version-tag">Dual Engine • Forex & US Equities</span>
+          <span class="version-tag">Tri-Engine • Forex, US Equities &amp; Crypto 24/7</span>
         </div>
       </div>
 
@@ -41,14 +41,20 @@
         </button>
         <button class="bot-tab" data-bot="stock" id="tabStock">
           <i class="fa-solid fa-arrow-trend-up"></i>
-          <span>Stock Agent (NASDAQ & Dow Jones)</span>
+          <span>Stock Agent (NASDAQ &amp; Dow)</span>
           <span class="bot-status-indicator active" id="dotStockMini"></span>
+        </button>
+        <button class="bot-tab" data-bot="crypto" id="tabCrypto">
+          <i class="fa-brands fa-bitcoin"></i>
+          <span>Crypto Agent (Alpaca 24/7)</span>
+          <span class="bot-status-indicator active" id="dotCryptoMini"></span>
         </button>
       </div>
 
       <!-- Stock Universe Category Tabs (Visible when Stock bot is active) -->
       <div class="universe-selector" id="universeSelector" style="display: none;">
         <button class="univ-tab active" data-univ="watchlist">🔥 Watchlist</button>
+        <button class="univ-tab" data-univ="growth">🚀 AI &amp; Space</button>
         <button class="univ-tab" data-univ="nasdaq">⚡ NASDAQ-100</button>
         <button class="univ-tab" data-univ="dow">🏛️ Dow Jones 30</button>
         <button class="univ-tab" data-univ="etf">📈 Index ETFs</button>
@@ -442,7 +448,7 @@
       <div class="modal-tabs">
         <button class="modal-tab active" data-target="mTabGemini"><i class="fa-solid fa-brain"></i> Gemini AI</button>
         <button class="modal-tab" data-target="mTabOanda"><i class="fa-solid fa-coins"></i> OANDA (Forex)</button>
-        <button class="modal-tab" data-target="mTabAlpaca"><i class="fa-solid fa-chart-line"></i> Alpaca (Stocks)</button>
+        <button class="modal-tab" data-target="mTabAlpaca"><i class="fa-solid fa-chart-line"></i> Alpaca (Stocks &amp; Crypto)</button>
         <button class="modal-tab" data-target="mTabRisk"><i class="fa-solid fa-shield-halved"></i> Risiko & Exits</button>
       </div>
 

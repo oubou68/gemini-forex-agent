@@ -12,8 +12,10 @@ client = TestClient(app)
 async def setup_test_mode():
     await agent_manager.forex_agent.set_mode("simulator")
     await agent_manager.stock_agent.set_mode("simulator")
+    await agent_manager.crypto_agent.set_mode("simulator")
     agent_manager.forex_agent.is_running = False
     agent_manager.stock_agent.is_running = False
+    agent_manager.crypto_agent.is_running = False
 
 
 def test_auth_config():

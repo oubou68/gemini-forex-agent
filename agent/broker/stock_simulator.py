@@ -3,7 +3,7 @@ import asyncio
 import math
 import random
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 
 from agent.broker.base_broker import BaseBroker
@@ -23,6 +23,20 @@ class StockSimulatorBroker(BaseBroker):
     """
 
     BASE_STOCK_PRICES: Dict[str, float] = {
+        # High-Conviction AI, Space, Power Infrastructure, Quantum & Fintech (2026)
+        "SPCX": 130.50,  # SpaceX (NASDAQ)
+        "ANT": 88.50,    # Anthropic (NASDAQ)
+        "CRWV": 44.90,   # CoreWeave (NASDAQ)
+        "GEV": 765.00,   # GE Vernova (NYSE)
+        "VRT": 189.50,   # Vertiv Holdings (NYSE)
+        "TSM": 352.10,   # Taiwan Semiconductor / TSMC (NYSE)
+        "RKLB": 52.50,   # Rocket Lab (NASDAQ)
+        "ASTS": 25.55,   # AST SpaceMobile (NASDAQ)
+        "HOOD": 62.70,   # Robinhood Markets (NASDAQ)
+        "RDDT": 94.50,   # Reddit (NYSE)
+        "SOFI": 13.55,   # SoFi Technologies (NASDAQ)
+        "IONQ": 22.70,   # IonQ (NYSE)
+
         # Magnificent 7 & Mega-Caps
         "AAPL": 227.50,
         "MSFT": 448.20,
@@ -179,13 +193,13 @@ class StockSimulatorBroker(BaseBroker):
             base_p = round(50.0 + (hash_val % 450), 2)
             self.BASE_STOCK_PRICES[symbol] = base_p
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         candles = []
         curr_p = base_p
         vol_factor = base_p * 0.002
 
         for i in range(count, 0, -1):
-            c_time = (now - timedelta(minutes=i * 5)).isoformat() + "Z"
+            c_time = (now - timedelta(minutes=i * 5)).isoformat().replace("+00:00", "Z")
             drift = random.gauss(0, vol_factor)
             open_p = curr_p
             close_p = max(1.0, open_p + drift)
@@ -228,7 +242,8 @@ class StockSimulatorBroker(BaseBroker):
 
         # Update Kerzenverlauf
         candles = self.candle_history.setdefault(symbol, [])
-        now_str = datetime.utcnow().isoformat() + "Z"
+        now_dt = datetime.now(timezone.utc)
+        now_str = now_dt.isoformat().replace("+00:00", "Z")
         
         if candles:
             last_c = candles[-1]
@@ -239,8 +254,10 @@ class StockSimulatorBroker(BaseBroker):
             
             # Alle 5 Minuten neue Kerze
             try:
-                last_time = datetime.fromisoformat(last_c.time.replace("Z", ""))
-                if (datetime.utcnow() - last_time).total_seconds() > 300:
+                last_time = datetime.fromisoformat(last_c.time.replace("Z", "+00:00"))
+                if last_time.tzinfo is None:
+                    last_time = last_time.replace(tzinfo=timezone.utc)
+                if (now_dt - last_time).total_seconds() > 300:
                     candles.append(Candle(
                         time=now_str,
                         open=new_price,
@@ -307,7 +324,7 @@ class StockSimulatorBroker(BaseBroker):
 
         self.open_positions.remove(pos)
         pos.status = PositionStatus.CLOSED
-        pos.close_time = datetime.utcnow().isoformat() + "Z"
+        pos.close_time = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         pos.close_reason = reason
         pos.realized_pnl = pos.unrealized_pnl
         pos.unrealized_pnl = 0.0
@@ -365,7 +382,7 @@ class StockSimulatorBroker(BaseBroker):
 
         return MarketPrice(
             instrument=symbol,
-            time=datetime.utcnow().isoformat() + "Z",
+            time=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             bid=bid,
             ask=ask,
             spread_pips=round(spread, 2),  # USD Cents
@@ -384,6 +401,7 @@ class StockSimulatorBroker(BaseBroker):
         entry_price = round(entry_price, 2)
 
         pos_id = f"stk_{uuid.uuid4().hex[:8]}"
+        sl_val = round(order.stop_loss, 2) if order.stop_loss else None
         pos = Position(
             id=pos_id,
             instrument=symbol,
@@ -391,11 +409,12 @@ class StockSimulatorBroker(BaseBroker):
             units=max(1, order.units),
             entry_price=entry_price,
             current_price=entry_price,
-            stop_loss=round(order.stop_loss, 2) if order.stop_loss else None,
+            stop_loss=sl_val,
+            initial_stop_loss=sl_val,
             take_profit=round(order.take_profit, 2) if order.take_profit else None,
             unrealized_pnl=0.0,
             realized_pnl=0.0,
-            open_time=datetime.utcnow().isoformat() + "Z",
+            open_time=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             status=PositionStatus.OPEN
         )
         self.open_positions.append(pos)

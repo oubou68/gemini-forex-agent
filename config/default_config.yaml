@@ -24,6 +24,8 @@ stock_trading:
   symbols:
     - "AAPL"
     - "NVDA"
+    - "SPCX"
+    - "ANT"
     - "TSLA"
     - "MSFT"
     - "AMZN"
@@ -33,6 +35,21 @@ stock_trading:
     - "SPY"
     - "QQQ"
     - "DIA"
+
+  # High-Conviction AI, Space, Power Infrastructure, Quantum & Fintech Leaders
+  innovation_growth:
+    - "SPCX"
+    - "ANT"
+    - "CRWV"
+    - "GEV"
+    - "VRT"
+    - "TSM"
+    - "RKLB"
+    - "ASTS"
+    - "HOOD"
+    - "RDDT"
+    - "SOFI"
+    - "IONQ"
   
   # Universe Screening Configuration
   universe_scanner_enabled: true
@@ -193,6 +210,75 @@ stock_trading:
     - "M15"
     - "H1"
   strategy_mode: "vwap_orb_momentum"
+
+crypto_trading:
+  # Top 20 Alpaca-Supported Spot Cryptocurrencies (USD Pairs)
+  default_symbol: "BTC/USD"
+  scan_interval_sec: 15
+  strategy_mode: "btc_regime_momentum_vol_target"
+  max_open_positions: 6
+  risk_per_trade_pct: 1.25
+  max_daily_drawdown_pct: 4.0
+  max_portfolio_exposure_pct: 65.0
+  max_spread_pct: 0.35
+  atr_multiplier_sl: 2.0
+  atr_multiplier_tp: 3.8
+  min_risk_reward_ratio: 1.8
+  breakeven_trigger_r: 1.2
+  partial_tp_trigger_r: 2.0
+  partial_tp_fraction: 0.50
+
+  # Tier 1: Core Large-Cap Anchors (Max 20% equity per coin)
+  tier_1_core:
+    - "BTC/USD"
+    - "ETH/USD"
+    - "SOL/USD"
+    - "XRP/USD"
+
+  # Tier 2: High-Liquidity L1, Infrastructure & DeFi (Max 12% equity per coin)
+  tier_2_alt_defi:
+    - "LINK/USD"
+    - "AVAX/USD"
+    - "DOT/USD"
+    - "UNI/USD"
+    - "AAVE/USD"
+    - "LTC/USD"
+    - "BCH/USD"
+    - "GRT/USD"
+    - "XTZ/USD"
+    - "CRV/USD"
+    - "MKR/USD"
+
+  # Tier 3: High-Beta Momentum & Meme Catalysts (Max 6% equity per coin, max 2 concurrent)
+  tier_3_high_beta:
+    - "DOGE/USD"
+    - "SHIB/USD"
+    - "PEPE/USD"
+    - "SUSHI/USD"
+    - "BAT/USD"
+
+  # Full Top 20 Universe
+  symbols:
+    - "BTC/USD"
+    - "ETH/USD"
+    - "SOL/USD"
+    - "XRP/USD"
+    - "DOGE/USD"
+    - "LINK/USD"
+    - "AVAX/USD"
+    - "DOT/USD"
+    - "UNI/USD"
+    - "AAVE/USD"
+    - "LTC/USD"
+    - "BCH/USD"
+    - "SHIB/USD"
+    - "PEPE/USD"
+    - "GRT/USD"
+    - "XTZ/USD"
+    - "CRV/USD"
+    - "SUSHI/USD"
+    - "MKR/USD"
+    - "BAT/USD"
 
 trading:
   instruments:

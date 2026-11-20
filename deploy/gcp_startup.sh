@@ -30,10 +30,18 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
 apt-get install -y python3 python3-pip python3-venv git curl ufw
 
-# 3. Create target directory
+# 3. Create unprivileged service user and target directory
 APP_DIR="/opt/aura-quant"
-echo "[3/6] Setting up application directory at ${APP_DIR}..."
-mkdir -p "${APP_DIR}"
+echo "[3/6] Setting up application user & directory at ${APP_DIR}..."
+if ! id -u auraquant >/dev/null 2>&1; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin auraquant
+fi
+mkdir -p "${APP_DIR}/data"
+chown -R auraquant:auraquant "${APP_DIR}"
+if [ -f "${APP_DIR}/.env" ]; then
+    chmod 600 "${APP_DIR}/.env"
+    chown auraquant:auraquant "${APP_DIR}/.env"
+fi
 
 # If code is not already present, clone or prepare placeholder
 if [ ! -f "${APP_DIR}/run_agent.py" ]; then
@@ -52,8 +60,9 @@ if [ -f "${APP_DIR}/requirements.txt" ]; then
     echo "Installing requirements from ${APP_DIR}/requirements.txt..."
     "${APP_DIR}/venv/bin/pip" install -r "${APP_DIR}/requirements.txt"
 fi
+chown -R auraquant:auraquant "${APP_DIR}"
 
-# 5. Install & Enable systemd service
+# 5. Install & Enable hardened systemd service
 echo "[5/6] Configuring systemd service 'aura-quant'..."
 cat << 'EOF' > /etc/systemd/system/aura-quant.service
 [Unit]
@@ -62,7 +71,8 @@ After=network.target
 
 [Service]
 Type=simple
-User=root
+User=auraquant
+Group=auraquant
 WorkingDirectory=/opt/aura-quant
 EnvironmentFile=/opt/aura-quant/.env
 ExecStart=/opt/aura-quant/venv/bin/python run_agent.py --host 0.0.0.0 --port 8000
@@ -70,6 +80,13 @@ Restart=always
 RestartSec=5
 KillMode=mixed
 TimeoutStopSec=20
+
+# Security Sandboxing
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/aura-quant/data
 
 # Resource Protections
 LimitNOFILE=65535

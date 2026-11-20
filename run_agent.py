@@ -28,12 +28,16 @@ def main():
     print("=" * 75)
     print(f"  * Forex Broker (OANDA):   {settings.OANDA_ENVIRONMENT.upper()} [{settings.DEFAULT_INSTRUMENT}]")
     print(f"  * Stock Broker (Alpaca):  {settings.ALPACA_ENVIRONMENT.upper()} [{settings.DEFAULT_STOCK_SYMBOL}]")
+    print(f"  * Crypto Broker (Alpaca): {settings.ALPACA_ENVIRONMENT.upper()} [{settings.DEFAULT_CRYPTO_SYMBOL} | Top 20 24/7]")
     print(f"  * Web-Dashboard:          http://localhost:{args.port}")
     print(f"  * Gemini AI Modell:       {settings.GEMINI_MODEL}")
     if settings.AUTH_ENABLED:
         print(f"  * Sicherheit & Auth:      AKTIV (Login unter http://localhost:{args.port}/login)")
-        print(f"    - Standard-Benutzer:    {settings.AUTH_USERNAME}")
-        print(f"    - Standard-Passwort:    {settings.AUTH_PASSWORD}")
+        print(f"    - Admin-Benutzer:       {settings.AUTH_USERNAME}")
+        pwd_mode = "PBKDF2-Hash" if settings.AUTH_PASSWORD.startswith("pbkdf2:sha256:") else "Konfiguriert (Klartext-Warnung: PBKDF2-Hash empfohlen)"
+        print(f"    - Passwort-Status:      {pwd_mode}")
+        if settings.AUTH_PASSWORD == "AuraQuant_2026!TradeSafe":
+            print("    - [!] SICHERHEITSHINWEIS: Standard-Passwort aktiv! Bitte AUTH_PASSWORD in .env ändern.")
         print(f"    - Google Ident:         {settings.GOOGLE_ALLOWED_EMAIL} (exklusiv)")
     else:
         print("  * Sicherheit & Auth:      DEAKTIVIERT")

@@ -1,14 +1,25 @@
 // Gemini Multi-Agent Intraday Trading Platform (Forex, NASDAQ & Dow Jones) - Frontend Client
 
 let socket = null;
-let activeBot = "forex"; // "forex" | "stock"
-let activeStockUniverse = "watchlist"; // "watchlist" | "nasdaq" | "dow" | "etf"
+let activeBot = "forex"; // "forex" | "stock" | "crypto"
+let activeStockUniverse = "watchlist"; // "watchlist" | "growth" | "nasdaq" | "dow" | "etf"
 let currentRenderedKey = ""; // Tracks currently rendered bot:instrument
 
 const FOREX_INSTRUMENTS = ["EUR_USD", "GBP_USD", "USD_JPY", "AUD_USD", "EUR_JPY"];
 
+const CRYPTO_TOP_20 = [
+  "BTC/USD", "ETH/USD", "SOL/USD", "XRP/USD", "DOGE/USD",
+  "LINK/USD", "AVAX/USD", "DOT/USD", "UNI/USD", "AAVE/USD",
+  "LTC/USD", "BCH/USD", "SHIB/USD", "PEPE/USD", "GRT/USD",
+  "XTZ/USD", "CRV/USD", "SUSHI/USD", "MKR/USD", "BAT/USD"
+];
+
 // Stock Universes
-const STOCK_WATCHLIST = ["AAPL", "NVDA", "TSLA", "MSFT", "AMZN", "GOOGL", "META", "AMD", "SPY", "QQQ", "DIA"];
+const STOCK_WATCHLIST = ["AAPL", "NVDA", "SPCX", "ANT", "TSLA", "MSFT", "AMZN", "GOOGL", "META", "AMD", "SPY", "QQQ", "DIA"];
+
+const INNOVATION_GROWTH = [
+  "SPCX", "ANT", "CRWV", "GEV", "VRT", "TSM", "RKLB", "ASTS", "HOOD", "RDDT", "SOFI", "IONQ"
+];
 
 const DOW_JONES_30 = [
   "AAPL", "AMGN", "AMZN", "AXP", "BA", "CAT", "CRM", "CSCO", "CVX", "DIS",
@@ -44,6 +55,12 @@ const botStates = {
     isRunning: true,
     mode: "simulator",
     telemetry: null
+  },
+  crypto: {
+    instrument: "BTC/USD",
+    isRunning: true,
+    mode: "simulator",
+    telemetry: null
   }
 };
 
@@ -65,8 +82,10 @@ const btnThemeToggle = document.getElementById("btnThemeToggle");
 const themeToggleIcon = document.getElementById("themeToggleIcon");
 const tabForex = document.getElementById("tabForex");
 const tabStock = document.getElementById("tabStock");
+const tabCrypto = document.getElementById("tabCrypto");
 const dotForexMini = document.getElementById("dotForexMini");
 const dotStockMini = document.getElementById("dotStockMini");
+const dotCryptoMini = document.getElementById("dotCryptoMini");
 const universeSelector = document.getElementById("universeSelector");
 const searchBoxContainer = document.getElementById("searchBoxContainer");
 const tickerSearchInput = document.getElementById("tickerSearchInput");
@@ -495,9 +514,9 @@ function setChartData(candles, botType = activeBot, instrument = null, fitView =
   }
 }
 
-// Populate Search Datalist with all NASDAQ and Dow Jones Tickers
+// Populate Search Datalist with all NASDAQ, Dow Jones & Innovation/Growth Tickers
 function populateSearchDatalist() {
-  const allSymbols = Array.from(new Set([...STOCK_WATCHLIST, ...DOW_JONES_30, ...NASDAQ_100, ...INDEX_ETFS])).sort();
+  const allSymbols = Array.from(new Set([...STOCK_WATCHLIST, ...INNOVATION_GROWTH, ...DOW_JONES_30, ...NASDAQ_100, ...INDEX_ETFS])).sort();
   allTickersList.innerHTML = "";
   allSymbols.forEach((sym) => {
     const opt = document.createElement("option");
@@ -511,8 +530,12 @@ function renderInstrumentPills() {
   let list = [];
   if (activeBot === "forex") {
     list = FOREX_INSTRUMENTS;
+  } else if (activeBot === "crypto") {
+    list = CRYPTO_TOP_20;
   } else {
-    if (activeStockUniverse === "nasdaq") {
+    if (activeStockUniverse === "growth") {
+      list = INNOVATION_GROWTH;
+    } else if (activeStockUniverse === "nasdaq") {
       list = NASDAQ_100.slice(0, 24);
     } else if (activeStockUniverse === "dow") {
       list = DOW_JONES_30;
@@ -525,7 +548,7 @@ function renderInstrumentPills() {
 
   const current = botStates[activeBot].instrument;
 
-  if (activeBot === "stock" && !list.includes(current)) {
+  if (activeBot !== "forex" && !list.includes(current)) {
     list = [current, ...list];
   }
 
@@ -536,7 +559,13 @@ function renderInstrumentPills() {
     const btn = document.createElement("button");
     const isActive = inst === current;
     btn.className = `pill ${isActive ? "active" : ""}`;
-    btn.textContent = activeBot === "stock" ? `$${inst}` : inst.replace("_", "/");
+    if (activeBot === "stock") {
+      btn.textContent = `$${inst}`;
+    } else if (activeBot === "crypto") {
+      btn.textContent = inst.replace("/USD", "");
+    } else {
+      btn.textContent = inst.replace("_", "/");
+    }
     btn.dataset.symbol = inst;
     btn.addEventListener("click", () => switchInstrument(inst));
     fragment.appendChild(btn);
@@ -549,7 +578,13 @@ function renderInstrumentPills() {
 function switchInstrument(symbol) {
   if (!symbol) return;
   const isStock = activeBot === "stock";
-  if (isStock) {
+  const isCrypto = activeBot === "crypto";
+  if (isCrypto) {
+    symbol = symbol.replace("$", "").replace("_", "/").toUpperCase().trim();
+    if (!symbol.includes("/")) {
+      symbol = symbol.endsWith("USD") ? `${symbol.slice(0, -3)}/USD` : `${symbol}/USD`;
+    }
+  } else if (isStock) {
     symbol = symbol.replace("/", "").replace("_", "").replace("$", "").toUpperCase().trim();
   } else {
     symbol = symbol.replace("/", "_").replace("$", "").toUpperCase().trim();
@@ -568,9 +603,11 @@ function switchInstrument(symbol) {
   renderInstrumentPills();
 
   // 2. Instant Header & Tag Update
-  chartPairTitle.textContent = `${isStock ? "$" + symbol : symbol.replace("_", "/")} • M5 Kerzen`;
-  btnManualBuy.querySelector(".active-instrument-label").textContent = `${isStock ? "$" + symbol : symbol.replace("_", "/")} (${isStock ? "Shares" : "Units"})`;
-  btnManualSell.querySelector(".active-instrument-label").textContent = `${isStock ? "$" + symbol : symbol.replace("_", "/")} (${isStock ? "Shares" : "Units"})`;
+  const displayTitle = isStock ? "$" + symbol : (isCrypto ? symbol : symbol.replace("_", "/"));
+  const unitLabel = isStock ? "Shares" : (isCrypto ? "Spot" : "Units");
+  chartPairTitle.textContent = `${displayTitle} • M5 Kerzen`;
+  btnManualBuy.querySelector(".active-instrument-label").textContent = `${displayTitle} (${unitLabel})`;
+  btnManualSell.querySelector(".active-instrument-label").textContent = `${displayTitle} (${unitLabel})`;
 
   // 3. Instant Render from Cache (0ms latency)
   const cacheKey = `${activeBot}:${symbol}`;
@@ -594,9 +631,11 @@ function switchBotTab(targetBot) {
   if (activeBot === targetBot) return;
   activeBot = targetBot;
 
+  tabForex.classList.toggle("active", activeBot === "forex");
+  tabStock.classList.toggle("active", activeBot === "stock");
+  if (tabCrypto) tabCrypto.classList.toggle("active", activeBot === "crypto");
+
   if (activeBot === "forex") {
-    tabForex.classList.add("active");
-    tabStock.classList.remove("active");
     universeSelector.style.display = "none";
     searchBoxContainer.style.display = "none";
     screenerCard.style.display = "none";
@@ -608,9 +647,19 @@ function switchBotTab(targetBot) {
     indMatrixTitle.textContent = "Quant & Forex Indikatoren";
     aiBrainTitle.textContent = "Gemini Forex Decision Engine";
     logHeaderTitle.textContent = "Forex Agent Audit & Activity Log";
+  } else if (activeBot === "crypto") {
+    universeSelector.style.display = "none";
+    searchBoxContainer.style.display = "none";
+    screenerCard.style.display = "flex";
+
+    chartBotTag.textContent = "CRYPTO 24/7 TOP 20";
+    chartBotTag.style.background = "#fef3c7";
+    chartBotTag.style.color = "#d97706";
+    chartBotTag.style.borderColor = "#fde68a";
+    indMatrixTitle.textContent = "Crypto BTC-Regime & Momentum Matrix";
+    aiBrainTitle.textContent = "Gemini Crypto Spot Strategy Engine (Medium Risk / Max Return)";
+    logHeaderTitle.textContent = "Crypto 24/7 Agent Audit & Screener Log";
   } else {
-    tabStock.classList.add("active");
-    tabForex.classList.remove("active");
     universeSelector.style.display = "flex";
     searchBoxContainer.style.display = "flex";
     screenerCard.style.display = "flex";
@@ -686,6 +735,12 @@ function connectWebSocket() {
           botStates.stock.isRunning = msg.stock.is_running;
           botStates.stock.mode = msg.stock.mode;
         }
+        if (msg.crypto) {
+          botStates.crypto.telemetry = msg.crypto;
+          botStates.crypto.instrument = msg.crypto.current_instrument || "BTC/USD";
+          botStates.crypto.isRunning = msg.crypto.is_running;
+          botStates.crypto.mode = msg.crypto.mode;
+        }
         updateMiniIndicators();
         renderInstrumentPills();
         if (botStates[activeBot].telemetry) {
@@ -740,6 +795,18 @@ function updateMiniIndicators() {
   if (dotStockMini) {
     dotStockMini.className = `bot-status-indicator ${botStates.stock.isRunning ? "active" : "paused"}`;
   }
+  if (dotCryptoMini) {
+    dotCryptoMini.className = `bot-status-indicator ${botStates.crypto.isRunning ? "active" : "paused"}`;
+  }
+}
+
+function formatCryptoPrice(val) {
+  if (val === undefined || val === null) return "--";
+  const num = Number(val);
+  if (num >= 100) return `$${num.toFixed(2)}`;
+  if (num >= 1) return `$${num.toFixed(4)}`;
+  if (num >= 0.01) return `$${num.toFixed(5)}`;
+  return `$${num.toFixed(8)}`;
 }
 
 // Update UI Components with Telemetry Data
@@ -747,16 +814,17 @@ function updateTelemetryUI(data, botType) {
   if (!data) return;
 
   const isStock = botType === "stock";
-  const currencySymbol = isStock ? "$" : "€";
+  const isCrypto = botType === "crypto";
+  const isUsd = isStock || isCrypto;
 
   // 1. Account & Status
   const acc = data.account || {};
-  equityTitle.textContent = isStock ? "KONTO-EQUITY (USD)" : "KONTO-EQUITY (EUR)";
-  equityValue.textContent = isStock ? `$${formatCurrency(acc.equity || 100000)}` : `${formatCurrency(acc.equity || 10000)} €`;
-  balanceValue.textContent = isStock ? `$${formatCurrency(acc.balance || 100000)}` : `${formatCurrency(acc.balance || 10000)} €`;
+  equityTitle.textContent = isUsd ? "KONTO-EQUITY (USD)" : "KONTO-EQUITY (EUR)";
+  equityValue.textContent = isUsd ? `$${formatCurrency(acc.equity || (isCrypto ? 50000 : 100000))}` : `${formatCurrency(acc.equity || 10000)} €`;
+  balanceValue.textContent = isUsd ? `$${formatCurrency(acc.balance || (isCrypto ? 50000 : 100000))}` : `${formatCurrency(acc.balance || 10000)} €`;
 
   const unPnl = acc.unrealized_pl || 0.0;
-  unrealizedPnlBadge.textContent = `${unPnl >= 0 ? "+" : ""}${isStock ? "$" : ""}${formatCurrency(unPnl)}${isStock ? "" : " €"}`;
+  unrealizedPnlBadge.textContent = `${unPnl >= 0 ? "+" : ""}${isUsd ? "$" : ""}${formatCurrency(unPnl)}${isUsd ? "" : " €"}`;
   unrealizedPnlBadge.className = `pnl-badge ${unPnl >= 0 ? "positive" : "negative"}`;
 
   const stats = data.stats || {};
@@ -765,7 +833,8 @@ function updateTelemetryUI(data, botType) {
   totalTradesValue.textContent = stats.total_trades || 0;
 
   drawdownValue.textContent = `${acc.daily_drawdown_pct || 0.0}%`;
-  if ((acc.daily_drawdown_pct || 0) >= 3.0) {
+  const ddLimit = isCrypto ? 4.0 : 3.0;
+  if ((acc.daily_drawdown_pct || 0) >= ddLimit) {
     riskStatusPill.textContent = "STOPP";
     riskStatusPill.className = "status-pill negative";
   } else {
@@ -787,18 +856,21 @@ function updateTelemetryUI(data, botType) {
     btnToggleAgent.className = "btn btn-secondary";
   }
 
-  modeLabel.textContent = `${isStock ? "ALPACA" : "OANDA"} ${(data.mode || "SIMULATOR").toUpperCase()}`;
+  modeLabel.textContent = `${isUsd ? (isCrypto ? "ALPACA CRYPTO" : "ALPACA") : "OANDA"} ${(data.mode || "SIMULATOR").toUpperCase()}`;
 
   // 3. Market & Session
   const price = data.market_price || {};
-  const currentInst = data.current_instrument || (isStock ? "AAPL" : "EUR_USD");
-  chartPairTitle.textContent = `${isStock ? "$" + currentInst : currentInst.replace("_", "/")} • M5 Kerzen`;
+  const currentInst = data.current_instrument || (isCrypto ? "BTC/USD" : (isStock ? "AAPL" : "EUR_USD"));
+  chartPairTitle.textContent = `${isStock ? "$" + currentInst : (isCrypto ? currentInst : currentInst.replace("_", "/"))} • M5 Kerzen`;
 
   if (price.mid) {
-    currentRateBadge.textContent = price.mid.toFixed(isStock ? 2 : (currentInst.includes("JPY") ? 3 : 5));
+    currentRateBadge.textContent = isCrypto ? formatCryptoPrice(price.mid) : price.mid.toFixed(isStock ? 2 : (currentInst.includes("JPY") ? 3 : 5));
   }
 
-  if (isStock) {
+  if (isCrypto) {
+    spreadContainer.innerHTML = `Spread: <strong id="spreadValue">${(price.spread_pips || 0.14).toFixed(2)}%</strong>`;
+    sessionTitle.textContent = "CRYPTO 24/7 SESSION";
+  } else if (isStock) {
     spreadContainer.innerHTML = `Spread: <strong id="spreadValue">$${(price.spread_pips || 0.02).toFixed(2)}</strong>`;
     sessionTitle.textContent = "US HANDELSSITZUNG";
   } else {
@@ -807,7 +879,7 @@ function updateTelemetryUI(data, botType) {
   }
 
   const struct = data.market_structure || {};
-  sessionValue.textContent = struct.active_session || (isStock ? "US_RTH" : "GLOBAL");
+  sessionValue.textContent = struct.active_session || (isCrypto ? "CRYPTO_24_7" : (isStock ? "US_RTH" : "GLOBAL"));
 
   // 4. Indicators & Dynamic Slots
   const ind = data.indicators || {};
@@ -815,16 +887,29 @@ function updateTelemetryUI(data, botType) {
     indRsi.textContent = ind.rsi_14.toFixed(1);
     rsiBar.style.width = `${Math.min(100, Math.max(0, ind.rsi_14))}%`;
   }
-  if (ind.macd !== undefined) {
+  if (ind.macd !== undefined && ind.macd !== null) {
     indMacd.textContent = ind.macd.toFixed(isStock ? 2 : 5);
     indMacdHist.textContent = `Hist: ${(ind.macd_hist || 0).toFixed(isStock ? 2 : 5)}`;
   }
-  if (ind.atr_14 !== undefined) {
-    indAtr.textContent = isStock ? `$${ind.atr_14.toFixed(2)}` : ind.atr_14.toFixed(5);
+  if (ind.atr_14 !== undefined && ind.atr_14 !== null) {
+    indAtr.textContent = isCrypto ? formatCryptoPrice(ind.atr_14) : (isStock ? `$${ind.atr_14.toFixed(2)}` : ind.atr_14.toFixed(5));
     indVolRegime.textContent = `Regime: ${ind.volatility_regime || "NORMAL"}`;
   }
 
-  if (isStock) {
+  if (isCrypto) {
+    lblSlot4.textContent = "BTC Macro Regime";
+    valSlot4.textContent = ind.btc_regime || "NEUTRAL";
+    subSlot4.textContent = `M15 Trend: ${ind.htf_trend_bias || "NEUTRAL"} | ADX: ${(ind.adx_14 || 0).toFixed(1)}`;
+
+    lblSlot5.textContent = "Relative Stärke vs. BTC";
+    const rsVal = ind.rs_vs_btc || 0;
+    valSlot5.textContent = `${rsVal >= 0 ? "+" : ""}${rsVal.toFixed(2)}%`;
+    subSlot5.textContent = `VWAP: ${formatCryptoPrice(ind.vwap)}`;
+
+    lblSlot6.textContent = "Relative Volume & BB-Squeeze";
+    valSlot6.textContent = ind.rvol ? `${ind.rvol}x` : "1.0x";
+    subSlot6.textContent = `BB-Width: ${(ind.bb_width_pct || 0).toFixed(2)}%`;
+  } else if (isStock) {
     // Slot 4: VWAP
     lblSlot4.textContent = "VWAP (Intraday Benchmark)";
     valSlot4.textContent = ind.vwap ? `$${ind.vwap.toFixed(2)}` : "--";
@@ -865,32 +950,33 @@ function updateTelemetryUI(data, botType) {
     aiSignalTag.className = `signal-tag ${dec.action.toLowerCase()}`;
     aiSetupBadge.textContent = `Setup: ${dec.setup_type || "NONE"}`;
     aiThesisText.textContent = dec.thesis_summary || "Warten auf nächste Marktanalyse...";
-    aiReasoningDetails.innerHTML = dec.reasoning ? dec.reasoning.replace(/;/g, "<br>• ") : "Keine Detail-Konfluenzen.";
+    aiReasoningDetails.innerHTML = dec.reasoning ? escapeHtml(dec.reasoning).replace(/;/g, "<br>• ") : "Keine Detail-Konfluenzen.";
 
-    lvlEntry.textContent = dec.entry_price ? (isStock ? `$${dec.entry_price.toFixed(2)}` : dec.entry_price.toFixed(5)) : "--";
-    lvlSl.textContent = dec.stop_loss ? (isStock ? `$${dec.stop_loss.toFixed(2)}` : dec.stop_loss.toFixed(5)) : "--";
-    lvlTp1.textContent = dec.take_profit_1 ? (isStock ? `$${dec.take_profit_1.toFixed(2)}` : dec.take_profit_1.toFixed(5)) : "--";
+    lvlEntry.textContent = dec.entry_price ? (isCrypto ? formatCryptoPrice(dec.entry_price) : (isStock ? `$${dec.entry_price.toFixed(2)}` : dec.entry_price.toFixed(5))) : "--";
+    lvlSl.textContent = dec.stop_loss ? (isCrypto ? formatCryptoPrice(dec.stop_loss) : (isStock ? `$${dec.stop_loss.toFixed(2)}` : dec.stop_loss.toFixed(5))) : "--";
+    lvlTp1.textContent = dec.take_profit_1 ? (isCrypto ? formatCryptoPrice(dec.take_profit_1) : (isStock ? `$${dec.take_profit_1.toFixed(2)}` : dec.take_profit_1.toFixed(5))) : "--";
     lvlRrr.textContent = dec.risk_reward_ratio ? `1 : ${dec.risk_reward_ratio}` : "--";
   }
 
-  // 6. Market Radar Screener Table
-  if (isStock && data.screener_candidates) {
-    renderScreenerTable(data.screener_candidates);
+  // 6. Market Radar Screener Table (Stocks & Crypto Top 20)
+  if ((isStock || isCrypto) && data.screener_candidates) {
+    renderScreenerTable(data.screener_candidates, isCrypto);
   }
 
   // 7. Positions Table
   const openPos = data.open_positions || [];
   openPositionsCount.textContent = openPos.length;
-  renderPositionsTable(openPos, isStock);
+  renderPositionsTable(openPos, isUsd);
 
   // 8. Closed Trades History Table
   const closedTrades = data.closed_positions || [];
-  renderClosedTradesTable(closedTrades, stats, isStock);
+  renderClosedTradesTable(closedTrades, stats, isUsd);
 
   // 9. Manual Quick Trade Buttons
-  const unitLabel = isStock ? "Shares" : "Units";
-  btnManualBuy.innerHTML = `<i class="fa-solid fa-arrow-up"></i> BUY <span class="active-instrument-label">${isStock ? "$" + currentInst : currentInst.replace("_", "/")} (${unitLabel})</span>`;
-  btnManualSell.innerHTML = `<i class="fa-solid fa-arrow-down"></i> SELL <span class="active-instrument-label">${isStock ? "$" + currentInst : currentInst.replace("_", "/")} (${unitLabel})</span>`;
+  const unitLabel = isStock ? "Shares" : (isCrypto ? "Spot" : "Units");
+  const safeInstLabel = escapeHtml(isStock ? "$" + currentInst : (isCrypto ? currentInst : String(currentInst || "").replace("_", "/")));
+  btnManualBuy.innerHTML = `<i class="fa-solid fa-arrow-up"></i> BUY <span class="active-instrument-label">${safeInstLabel} (${unitLabel})</span>`;
+  btnManualSell.innerHTML = `<i class="fa-solid fa-arrow-down"></i> ${isCrypto ? "CLOSE/SELL" : "SELL"} <span class="active-instrument-label">${safeInstLabel} (${unitLabel})</span>`;
 
   // 10. Logs
   if (data.recent_logs && data.recent_logs.length > 0) {
@@ -898,7 +984,16 @@ function updateTelemetryUI(data, botType) {
   }
 }
 
-function renderScreenerTable(candidates) {
+function escapeHtml(val) {
+  return String(val ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function renderScreenerTable(candidates, isCrypto = false) {
   if (!candidates || candidates.length === 0) return;
   screenerTableBody.innerHTML = "";
   const fragment = document.createDocumentFragment();
@@ -907,20 +1002,22 @@ function renderScreenerTable(candidates) {
     const tr = document.createElement("tr");
     const chgClass = c.change_pct >= 0 ? "positive" : "negative";
     const chgPrefix = c.change_pct >= 0 ? "+" : "";
-    const idxClass = c.index.toLowerCase();
-    const orbClass = c.orb_status.toLowerCase();
-    const sigClass = c.signal.toLowerCase();
+    const idxClass = escapeHtml(c.index).toLowerCase();
+    const orbClass = escapeHtml(c.orb_status).toLowerCase();
+    const sigClass = escapeHtml(c.signal).toLowerCase();
+    const safeSymbol = escapeHtml(c.symbol);
+    const priceDisplay = isCrypto ? formatCryptoPrice(c.price) : `$${Number(c.price || 0).toFixed(2)}`;
 
     tr.innerHTML = `
-      <td><strong>$${c.symbol}</strong></td>
-      <td><span class="index-badge ${idxClass}">${c.index}</span></td>
-      <td class="font-mono">$${c.price.toFixed(2)}</td>
-      <td class="font-mono ${chgClass}"><strong>${chgPrefix}${c.change_pct.toFixed(2)}%</strong></td>
-      <td class="font-mono">${c.rvol}x</td>
-      <td class="font-mono font-xs">${c.vwap_position.replace("_", " ")}</td>
-      <td><span class="orb-tag ${orbClass}">${c.orb_status.replace("_", " ")}</span></td>
-      <td><span class="type-badge ${sigClass}">${c.signal}</span></td>
-      <td><button class="btn-chart-pick" data-symbol="${c.symbol}"><i class="fa-solid fa-chart-line"></i> Chart</button></td>
+      <td><strong>${isCrypto ? safeSymbol : "$" + safeSymbol}</strong></td>
+      <td><span class="index-badge ${idxClass}">${escapeHtml(c.index)}</span></td>
+      <td class="font-mono">${escapeHtml(priceDisplay)}</td>
+      <td class="font-mono ${chgClass}"><strong>${chgPrefix}${Number(c.change_pct || 0).toFixed(2)}%</strong></td>
+      <td class="font-mono">${escapeHtml(c.rvol)}x</td>
+      <td class="font-mono font-xs">${escapeHtml(String(c.vwap_position || "").replace("_", " "))}</td>
+      <td><span class="orb-tag ${orbClass}">${escapeHtml(String(c.orb_status || "").replace("_", " "))}</span></td>
+      <td><span class="type-badge ${sigClass}">${escapeHtml(c.signal)}</span></td>
+      <td><button class="btn-chart-pick" data-symbol="${safeSymbol}"><i class="fa-solid fa-chart-line"></i> Chart</button></td>
     `;
     fragment.appendChild(tr);
   });
@@ -950,22 +1047,25 @@ function renderPositionsTable(positions, isStock) {
     const prefix = pnl >= 0 ? "+" : "";
     const pnlFormatted = isStock ? `${prefix}$${formatCurrency(pnl)}` : `${prefix}${formatCurrency(pnl)} €`;
     const slTp = `${p.stop_loss ? (isStock ? "$" + p.stop_loss.toFixed(2) : p.stop_loss.toFixed(5)) : "--"} / ${p.take_profit ? (isStock ? "$" + p.take_profit.toFixed(2) : p.take_profit.toFixed(5)) : "--"}`;
-    const displaySym = isStock ? "$" + p.instrument : p.instrument.replace("_", "/");
+    const safeInst = escapeHtml(p.instrument);
+    const safeId = escapeHtml(p.id);
+    const safeDir = escapeHtml(p.direction);
+    const displaySym = escapeHtml(isStock ? "$" + p.instrument : String(p.instrument || "").replace("_", "/"));
 
     tr.innerHTML = `
-      <td class="font-mono">${p.id.substring(0, 8)}</td>
+      <td class="font-mono">${safeId.substring(0, 8)}</td>
       <td>
-        <button class="pos-symbol-btn" data-symbol="${p.instrument}" title="Klicke um Chart für ${displaySym} anzuzeigen">
+        <button class="pos-symbol-btn" data-symbol="${safeInst}" title="Klicke um Chart für ${displaySym} anzuzeigen">
           <strong>${displaySym}</strong>
           <i class="fa-solid fa-chart-line"></i>
         </button>
       </td>
-      <td><span class="type-badge ${p.direction.toLowerCase()}">${p.direction}</span></td>
-      <td>${p.units} ${isStock ? "Shares" : "Units"}</td>
-      <td class="font-mono">${isStock ? "$" + p.entry_price.toFixed(2) : p.entry_price.toFixed(5)}</td>
-      <td class="font-mono font-xs">${slTp}</td>
-      <td class="font-mono ${pnlClass}"><strong>${pnlFormatted}</strong></td>
-      <td><button class="btn btn-close-pos" data-id="${p.id}"><i class="fa-solid fa-xmark"></i> Schließen</button></td>
+      <td><span class="type-badge ${safeDir.toLowerCase()}">${safeDir}</span></td>
+      <td>${escapeHtml(p.units)} ${isStock ? "Shares" : "Units"}</td>
+      <td class="font-mono">${isStock ? "$" + Number(p.entry_price || 0).toFixed(2) : Number(p.entry_price || 0).toFixed(5)}</td>
+      <td class="font-mono font-xs">${escapeHtml(slTp)}</td>
+      <td class="font-mono ${pnlClass}"><strong>${escapeHtml(pnlFormatted)}</strong></td>
+      <td><button class="btn btn-close-pos" data-id="${safeId}"><i class="fa-solid fa-xmark"></i> Schließen</button></td>
     `;
     fragment.appendChild(tr);
   });
@@ -1064,24 +1164,29 @@ function renderClosedTradesTable(trades, stats, isStock) {
     else if (reason.includes("MANUAL")) reasonClass = "reason-manual";
 
     const dir = t.direction ? (typeof t.direction === "object" ? t.direction.value : t.direction) : "BUY";
-    const dirClass = dir.toLowerCase();
+    const safeDir = escapeHtml(dir);
+    const dirClass = safeDir.toLowerCase();
+    const safeId = escapeHtml(t.id || "");
+    const safeInst = escapeHtml(t.instrument || "");
+    const safeDisplaySym = escapeHtml(displaySym);
+    const safeReason = escapeHtml(reason);
 
     tr.innerHTML = `
-      <td class="font-mono font-xs">${(t.id || "").substring(0, 8)}</td>
+      <td class="font-mono font-xs">${safeId.substring(0, 8)}</td>
       <td>
-        <button class="pos-symbol-btn" data-symbol="${t.instrument}" title="Klicke um Chart für ${displaySym} anzuzeigen">
-          <strong>${displaySym}</strong>
+        <button class="pos-symbol-btn" data-symbol="${safeInst}" title="Klicke um Chart für ${safeDisplaySym} anzuzeigen">
+          <strong>${safeDisplaySym}</strong>
           <i class="fa-solid fa-chart-line"></i>
         </button>
       </td>
-      <td><span class="type-badge ${dirClass}">${dir}</span></td>
-      <td>${t.units || 0} ${isStock ? "Shares" : "Units"}</td>
-      <td class="font-mono">${entryStr}</td>
-      <td class="font-mono">${exitStr}</td>
-      <td class="font-mono ${pnlClass}"><strong>${pnlFormatted}</strong></td>
-      <td class="font-mono font-xs">${openTimeStr}</td>
-      <td class="font-mono font-xs">${closeTimeStr}</td>
-      <td><span class="reason-tag ${reasonClass}">${reason}</span></td>
+      <td><span class="type-badge ${dirClass}">${safeDir}</span></td>
+      <td>${escapeHtml(t.units || 0)} ${isStock ? "Shares" : "Units"}</td>
+      <td class="font-mono">${escapeHtml(entryStr)}</td>
+      <td class="font-mono">${escapeHtml(exitStr)}</td>
+      <td class="font-mono ${pnlClass}"><strong>${escapeHtml(pnlFormatted)}</strong></td>
+      <td class="font-mono font-xs">${escapeHtml(openTimeStr)}</td>
+      <td class="font-mono font-xs">${escapeHtml(closeTimeStr)}</td>
+      <td><span class="reason-tag ${reasonClass}">${safeReason}</span></td>
     `;
     fragment.appendChild(tr);
   });
@@ -1110,8 +1215,9 @@ function renderLogs(logs) {
   const fragment = document.createDocumentFragment();
   logs.forEach((l) => {
     const div = document.createElement("div");
-    div.className = `log-entry ${l.category || "SYSTEM"}`;
-    div.innerHTML = `<span class="log-time">${l.timestamp || "--:--:--"}</span> [${l.category || "SYSTEM"}] ${l.message}`;
+    const safeCat = escapeHtml(l.category || "SYSTEM");
+    div.className = `log-entry ${safeCat}`;
+    div.innerHTML = `<span class="log-time">${escapeHtml(l.timestamp || "--:--:--")}</span> [${safeCat}] ${escapeHtml(l.message || "")}`;
     fragment.appendChild(div);
   });
   logStream.appendChild(fragment);
@@ -1158,11 +1264,12 @@ async function triggerEmergencyClose() {
 }
 
 async function closeSinglePosition(posId) {
+  if (!posId) return;
   try {
-    await authFetch("/api/control/emergency-close", {
+    await authFetch("/api/control/close-position", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ bot_type: activeBot })
+      body: JSON.stringify({ bot_type: activeBot, position_id: posId })
     });
   } catch (e) {
     console.error("Fehler beim Schließen der Position:", e);
@@ -1351,6 +1458,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   tabForex.addEventListener("click", () => switchBotTab("forex"));
   tabStock.addEventListener("click", () => switchBotTab("stock"));
+  if (tabCrypto) {
+    tabCrypto.addEventListener("click", () => switchBotTab("crypto"));
+  }
 
   // Universe Selector Tabs
   document.querySelectorAll(".univ-tab").forEach((btn) => {

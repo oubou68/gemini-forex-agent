@@ -62,6 +62,11 @@ class IndicatorValues(BaseModel):
     rvol: Optional[float] = None
     orb_high: Optional[float] = None
     orb_low: Optional[float] = None
+    adx_14: Optional[float] = None
+    htf_trend_bias: str = "NEUTRAL"  # Higher timeframe (M15) trend alignment
+    btc_regime: Optional[str] = None  # RISK_ON, NEUTRAL, RISK_OFF (Crypto macro filter)
+    rs_vs_btc: Optional[float] = None  # Relative strength % vs BTC/USD
+    bb_width_pct: Optional[float] = None  # Bollinger Bandwidth % (squeeze/expansion)
     trend_bias: str = "NEUTRAL"  # BULLISH, BEARISH, NEUTRAL
     volatility_regime: str = "NORMAL"  # LOW, NORMAL, HIGH, EXPANDING
 
@@ -91,18 +96,21 @@ class GeminiTradeDecision(BaseModel):
     invalidation_level: Optional[float] = None
     suggested_risk_pct: float = 1.0
     setup_type: str = "NONE"  # TREND_CONTINUATION, PULLBACK, RANGE_FADE, BREAKOUT, S/R_BOUNCE
-    timestamp: str = Field(default_factory=lambda: datetime.utcnow().isoformat())
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"))
 
 
 class Position(BaseModel):
     id: str
     instrument: str
     direction: PositionDirection
-    units: int
+    units: float
     entry_price: float
     current_price: float
     stop_loss: Optional[float] = None
+    initial_stop_loss: Optional[float] = None
     take_profit: Optional[float] = None
+    highest_price: Optional[float] = None
+    partial_tp_taken: bool = False
     unrealized_pnl: float = 0.0
     realized_pnl: float = 0.0
     open_time: str
@@ -115,7 +123,7 @@ class Position(BaseModel):
 class OrderRequest(BaseModel):
     instrument: str
     direction: PositionDirection
-    units: int
+    units: float
     order_type: str = "MARKET"  # MARKET, LIMIT
     price: Optional[float] = None
     stop_loss: Optional[float] = None
@@ -147,6 +155,7 @@ class TradePerformanceStats(BaseModel):
     max_drawdown_pct: float = 0.0
     avg_win: float = 0.0
     avg_loss: float = 0.0
+    expectancy: float = 0.0
 
 
 class StockScreenerCandidate(BaseModel):

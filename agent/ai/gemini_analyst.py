@@ -1,6 +1,5 @@
 import json
 import logging
-import re
 from typing import Optional, Dict, Any
 
 from agent.core.models import (
@@ -16,19 +15,25 @@ logger = logging.getLogger(__name__)
 class GeminiForexAnalyst:
     """
     Intelligente KI-Entscheidungs-Engine für Forex-Intraday-Trading.
-    Nutzt das Google Gemini SDK (google-genai) mit strukturierter JSON-Generierung
-    und optimiertem Token-Verbrauch durch Handelszeiten-Gating.
+    Nutzt das Google Gemini SDK (google-genai) mit strukturierter JSON-Generierung,
+    quantitativem Pre-Filtering und optimiertem Token-Verbrauch durch Handelszeiten-Gating.
     """
 
     def __init__(
         self,
         api_key: Optional[str] = None,
         model_name: str = "gemini-2.5-flash",
-        restrict_to_trading_hours: bool = True
+        restrict_to_trading_hours: bool = True,
+        temperature: float = 0.2,
+        atr_sl_mult: float = 1.5,
+        atr_tp_mult: float = 2.5
     ):
         self.api_key = api_key or ""
         self.model_name = model_name
         self.restrict_to_trading_hours = restrict_to_trading_hours
+        self.temperature = temperature
+        self.atr_sl_mult = atr_sl_mult
+        self.atr_tp_mult = atr_tp_mult
         self.client = None
         self._init_client()
 
@@ -54,6 +59,88 @@ class GeminiForexAnalyst:
         self.restrict_to_trading_hours = restrict
         logger.info(f"Gemini Forex Token-Optimierung (Handelszeiten-Gating): {restrict}")
 
+    def score_setup_confluence(
+        self,
+        price: MarketPrice,
+        ind: IndicatorValues,
+        struct: MarketStructure,
+        session_name: str
+    ) -> Dict[str, Any]:
+        """Schneller, tokenfreier Konfluenz-Score zur Vorselektion profitabler Setups."""
+        bullish_score = 0
+        bullish_reasons = []
+        bearish_score = 0
+        bearish_reasons = []
+
+        if ind.trend_bias == "BULLISH":
+            bullish_score += 30
+            bullish_reasons.append("EMA-Fächer aufwärts gerichtet (9 > 21)")
+        elif ind.trend_bias == "BEARISH":
+            bearish_score += 30
+            bearish_reasons.append("EMA-Fächer abwärts gerichtet (9 < 21)")
+
+        # Multi-Timeframe (M15) Bestätigung
+        if ind.htf_trend_bias == "BULLISH":
+            bullish_score += 15
+            bullish_reasons.append("M15 Higher-Timeframe Trend bullish ausgerichtet")
+            bearish_score -= 10
+        elif ind.htf_trend_bias == "BEARISH":
+            bearish_score += 15
+            bearish_reasons.append("M15 Higher-Timeframe Trend bearish ausgerichtet")
+            bullish_score -= 10
+
+        if ind.rsi_14 and 40 <= ind.rsi_14 <= 62:
+            bullish_score += 20
+            bullish_reasons.append(f"RSI im gesunden Pullback-Bereich ({ind.rsi_14})")
+        if ind.rsi_14 and 38 <= ind.rsi_14 <= 60:
+            bearish_score += 20
+            bearish_reasons.append(f"RSI im Pullback-Widerstandsbereich ({ind.rsi_14})")
+
+        if ind.macd_hist is not None and ind.macd_hist > 0:
+            bullish_score += 15
+            bullish_reasons.append("MACD Histogramm positiv")
+        elif ind.macd_hist is not None and ind.macd_hist < 0:
+            bearish_score += 15
+            bearish_reasons.append("MACD Histogramm negativ")
+
+        if struct.fvg_bullish:
+            bullish_score += 20
+            bullish_reasons.append("Bullish Fair Value Gap Unterstützung erkannt")
+        if struct.fvg_bearish:
+            bearish_score += 20
+            bearish_reasons.append("Bearish Fair Value Gap Abweisung erkannt")
+
+        if "LONDON" in session_name or "NEW_YORK" in session_name or "OVERLAP" in session_name:
+            bullish_score += 15
+            bullish_reasons.append(f"Hohe Liquidität in {session_name} Session")
+            bearish_score += 15
+            bearish_reasons.append(f"Hohe Liquidität in {session_name} Session")
+
+        # ADX Trendstärke-Filter (wenn berechnet)
+        if ind.adx_14 is not None:
+            if ind.adx_14 >= 22.0:
+                if bullish_score > bearish_score:
+                    bullish_score += 10
+                    bullish_reasons.append(f"Starke Trenddynamik (ADX {ind.adx_14:.1f})")
+                elif bearish_score > bullish_score:
+                    bearish_score += 10
+                    bearish_reasons.append(f"Starke Trenddynamik (ADX {ind.adx_14:.1f})")
+            elif ind.adx_14 < 15.0:
+                bullish_score -= 15
+                bearish_score -= 15
+
+        bullish_score = max(0, min(100, bullish_score))
+        bearish_score = max(0, min(100, bearish_score))
+
+        return {
+            "bullish_score": bullish_score,
+            "bullish_reasons": bullish_reasons,
+            "bearish_score": bearish_score,
+            "bearish_reasons": bearish_reasons,
+            "max_score": max(bullish_score, bearish_score),
+            "edge": abs(bullish_score - bearish_score),
+        }
+
     async def analyze_market(
         self,
         instrument: str,
@@ -63,11 +150,17 @@ class GeminiForexAnalyst:
         session_name: str,
         open_positions_count: int,
         daily_drawdown_pct: float,
-        recent_history_context: str = ""
+        recent_history_context: str = "",
+        use_llm: bool = True,
+        atr_sl_mult: Optional[float] = None,
+        atr_tp_mult: Optional[float] = None
     ) -> GeminiTradeDecision:
         """
         Führt eine Multi-Indikator- und Marktstruktur-Analyse via Gemini oder Heuristik-Engine durch.
         """
+        sl_mult = atr_sl_mult if atr_sl_mult is not None else self.atr_sl_mult
+        tp_mult = atr_tp_mult if atr_tp_mult is not None else self.atr_tp_mult
+
         # Token-Optimierung: Wenn Forex-Markt geschlossen ist (Wochenende), überspringe Gemini API-Aufruf
         if self.restrict_to_trading_hours and not SessionAnalyzer.is_market_open():
             logger.info("Forex-Markt geschlossen (Wochenende). Überspringe Gemini API-Aufruf zur Token-Optimierung.")
@@ -88,8 +181,10 @@ class GeminiForexAnalyst:
             spread_pips=price.spread_pips,
             session=session_name,
             execution_tf="M5",
-            context_tf="M15 / H1",
+            context_tf="M15",
             trend_bias=indicators.trend_bias,
+            htf_trend_bias=indicators.htf_trend_bias,
+            adx_14=indicators.adx_14 if indicators.adx_14 is not None else "N/A",
             volatility_regime=indicators.volatility_regime,
             ema_9=indicators.ema_9,
             ema_21=indicators.ema_21,
@@ -116,33 +211,57 @@ class GeminiForexAnalyst:
             recent_trade_history=recent_history_context
         )
 
-        # 2. Wenn Gemini Client aktiv ist, API aufrufen
-        if self.client:
+        # 2. Wenn Gemini Client aktiv ist und LLM-Analyse angefordert wurde, API aufrufen
+        if self.client and use_llm:
             try:
-                decision = await self._call_gemini_api(user_prompt, instrument, price, indicators)
+                decision = await self._call_gemini_api(
+                    user_prompt, instrument, price, indicators, sl_mult=sl_mult, tp_mult=tp_mult
+                )
                 if decision:
                     return decision
             except Exception as e:
                 logger.error(f"Gemini API Fehler: {e}. Verwende Fallback-Heuristik.")
 
         # 3. Intelligenter Quant-AI Fallback
-        return self._heuristic_analysis(instrument, price, indicators, structure, session_name, open_positions_count)
+        return self._heuristic_analysis(
+            instrument, price, indicators, structure, session_name, open_positions_count,
+            sl_mult=sl_mult, tp_mult=tp_mult
+        )
 
     async def _call_gemini_api(
         self,
         prompt: str,
         instrument: str,
         price: MarketPrice,
-        indicators: IndicatorValues
+        indicators: IndicatorValues,
+        sl_mult: Optional[float] = None,
+        tp_mult: Optional[float] = None
     ) -> Optional[GeminiTradeDecision]:
         import asyncio
 
+        eff_sl_mult = sl_mult if sl_mult is not None else self.atr_sl_mult
+        eff_tp_mult = tp_mult if tp_mult is not None else self.atr_tp_mult
+
         def _generate():
-            # Erstelle Prompt mit System-Anweisung
-            response = self.client.models.generate_content(
-                model=self.model_name,
-                contents=f"{SYSTEM_INTRADAY_PROMPT}\n\n{prompt}",
-            )
+            contents = f"{SYSTEM_INTRADAY_PROMPT}\n\n{prompt}"
+            try:
+                from google.genai import types
+                config = types.GenerateContentConfig(
+                    temperature=self.temperature,
+                    max_output_tokens=1200,
+                    response_mime_type="application/json"
+                )
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=contents,
+                    config=config
+                )
+            except TypeError:
+                # Kompatibilität für Mock-Clients oder ältere SDK-Signaturen
+                response = self.client.models.generate_content(
+                    model=self.model_name,
+                    contents=contents,
+                )
             return response.text
 
         raw_text = await asyncio.to_thread(_generate)
@@ -178,7 +297,11 @@ class GeminiForexAnalyst:
             data = json.loads(cleaned_json)
             action_str = str(data.get("action") or "HOLD").upper().strip()
             action = TradeAction(action_str) if action_str in TradeAction.__members__ else TradeAction.HOLD
-            
+
+            pip = 0.01 if "JPY" in instrument.upper() else 0.0001
+            decimals = 3 if pip == 0.01 else 5
+            atr = indicators.atr_14 or (15 * pip)
+
             entry = _safe_float(data.get("entry_price"), default=price.mid)
             sl = _safe_float(data.get("stop_loss"), default=None)
             tp1 = _safe_float(data.get("take_profit_1"), default=None)
@@ -187,6 +310,25 @@ class GeminiForexAnalyst:
             inv = _safe_float(data.get("invalidation_level"), default=(sl or entry))
             risk_pct = _safe_float(data.get("suggested_risk_pct"), default=1.0) or 1.0
             confidence = _safe_float(data.get("confidence"), default=50.0) or 50.0
+
+            # Sanitize bounds & live execution prices for BUY/SELL
+            confidence = max(0.0, min(100.0, confidence))
+            risk_pct = max(0.25, min(2.0, risk_pct))
+
+            if action == TradeAction.BUY:
+                entry = price.ask
+                if sl is None or sl >= entry:
+                    sl = round(entry - (eff_sl_mult * atr), decimals)
+                if tp1 is None or tp1 <= entry:
+                    tp1 = round(entry + (eff_tp_mult * atr), decimals)
+                rrr = round((tp1 - entry) / max(entry - sl, 1e-9), 2)
+            elif action == TradeAction.SELL:
+                entry = price.bid
+                if sl is None or sl <= entry:
+                    sl = round(entry + (eff_sl_mult * atr), decimals)
+                if tp1 is None or tp1 >= entry:
+                    tp1 = round(entry - (eff_tp_mult * atr), decimals)
+                rrr = round((entry - tp1) / max(sl - entry, 1e-9), 2)
 
             return GeminiTradeDecision(
                 action=action,
@@ -214,14 +356,19 @@ class GeminiForexAnalyst:
         ind: IndicatorValues,
         struct: MarketStructure,
         session_name: str,
-        open_positions: int
+        open_positions: int,
+        sl_mult: Optional[float] = None,
+        tp_mult: Optional[float] = None
     ) -> GeminiTradeDecision:
         """
         Quant-Algorithmus zur Signalvalidierung & Trade-Generierung.
         """
+        eff_sl_mult = sl_mult if sl_mult is not None else self.atr_sl_mult
+        eff_tp_mult = tp_mult if tp_mult is not None else self.atr_tp_mult
         atr = ind.atr_14 or (0.0015 if "JPY" not in instrument else 0.15)
         pip = 0.01 if "JPY" in instrument else 0.0001
-        
+        decimals = 5 if pip == 0.0001 else 3
+
         # Keine neuen Positionen wenn Spread zu hoch
         if price.spread_pips > 3.0:
             return GeminiTradeDecision(
@@ -242,53 +389,19 @@ class GeminiForexAnalyst:
                 reasoning=f"Bereits {open_positions} aktive Position(en) offen."
             )
 
-        # 1. Bullish Setup Bedingungen
-        bullish_score = 0
-        bullish_reasons = []
-
-        if ind.trend_bias == "BULLISH":
-            bullish_score += 30
-            bullish_reasons.append("EMA-Fächer aufwärts gerichtet (9 > 21)")
-        if ind.rsi_14 and 40 <= ind.rsi_14 <= 60:
-            bullish_score += 20
-            bullish_reasons.append(f"RSI im gesunden Pullback-Bereich ({ind.rsi_14})")
-        if ind.macd_hist and ind.macd_hist > 0:
-            bullish_score += 15
-            bullish_reasons.append("MACD Histogramm positiv")
-        if struct.fvg_bullish:
-            bullish_score += 20
-            bullish_reasons.append("Bullish Fair Value Gap Unterstützung erkannt")
-        if "LONDON" in session_name or "NEW_YORK" in session_name:
-            bullish_score += 15
-            bullish_reasons.append(f"Hohe Liquidität in {session_name} Session")
-
-        # 2. Bearish Setup Bedingungen
-        bearish_score = 0
-        bearish_reasons = []
-
-        if ind.trend_bias == "BEARISH":
-            bearish_score += 30
-            bearish_reasons.append("EMA-Fächer abwärts gerichtet (9 < 21)")
-        if ind.rsi_14 and 40 <= ind.rsi_14 <= 60:
-            bearish_score += 20
-            bearish_reasons.append(f"RSI im Pullback-Widerstandsbereich ({ind.rsi_14})")
-        if ind.macd_hist and ind.macd_hist < 0:
-            bearish_score += 15
-            bearish_reasons.append("MACD Histogramm negativ")
-        if struct.fvg_bearish:
-            bearish_score += 20
-            bearish_reasons.append("Bearish Fair Value Gap Abweisung erkannt")
-        if "LONDON" in session_name or "NEW_YORK" in session_name:
-            bearish_score += 15
-            bearish_reasons.append(f"Hohe Liquidität in {session_name} Session")
+        scores = self.score_setup_confluence(price, ind, struct, session_name)
+        bullish_score = scores["bullish_score"]
+        bearish_score = scores["bearish_score"]
+        bullish_reasons = scores["bullish_reasons"]
+        bearish_reasons = scores["bearish_reasons"]
 
         # Entscheidung fällen (Schwellenwert: 70 Score)
         if bullish_score >= 70 and bullish_score > bearish_score + 20:
             entry = price.ask
-            sl = round(entry - (1.5 * atr), 5 if pip == 0.0001 else 3)
-            tp1 = round(entry + (2.5 * atr), 5 if pip == 0.0001 else 3)
-            tp2 = round(entry + (4.0 * atr), 5 if pip == 0.0001 else 3)
-            rrr = round((tp1 - entry) / (entry - sl), 2)
+            sl = round(entry - (eff_sl_mult * atr), decimals)
+            tp1 = round(entry + (eff_tp_mult * atr), decimals)
+            tp2 = round(entry + ((eff_tp_mult + 1.5) * atr), decimals)
+            rrr = round((tp1 - entry) / max(entry - sl, 1e-9), 2)
 
             return GeminiTradeDecision(
                 action=TradeAction.BUY,
@@ -308,10 +421,10 @@ class GeminiForexAnalyst:
 
         elif bearish_score >= 70 and bearish_score > bullish_score + 20:
             entry = price.bid
-            sl = round(entry + (1.5 * atr), 5 if pip == 0.0001 else 3)
-            tp1 = round(entry - (2.5 * atr), 5 if pip == 0.0001 else 3)
-            tp2 = round(entry - (4.0 * atr), 5 if pip == 0.0001 else 3)
-            rrr = round((entry - tp1) / (sl - entry), 2)
+            sl = round(entry + (eff_sl_mult * atr), decimals)
+            tp1 = round(entry - (eff_tp_mult * atr), decimals)
+            tp2 = round(entry - ((eff_tp_mult + 1.5) * atr), decimals)
+            rrr = round((entry - tp1) / max(sl - entry, 1e-9), 2)
 
             return GeminiTradeDecision(
                 action=TradeAction.SELL,

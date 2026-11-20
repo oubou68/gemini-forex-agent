@@ -1,0 +1,23 @@
+# Secrets & local environment files must NEVER be baked into container images
+.env
+.env.*
+!.env.example
+
+# Git & VCS
+.git
+.gitignore
+
+# Python caches & virtual environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Tests & runtime artifacts
+.pytest_cache/
+tests/
+data/
+logs/
+*.log
+scratch/

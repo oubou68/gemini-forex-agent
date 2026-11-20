@@ -3,7 +3,7 @@ import asyncio
 import math
 import random
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 
 from agent.broker.base_broker import BaseBroker
@@ -54,7 +54,7 @@ class SimulatorBroker(BaseBroker):
 
     def _generate_initial_candle_history(self, count: int = 150):
         """Generiert eine realistische historische Kerzenreihe für alle Standard-Währungspaare."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         for inst, base_p in self.BASE_PRICES.items():
             candles = []
             curr_p = base_p
@@ -62,7 +62,7 @@ class SimulatorBroker(BaseBroker):
             
             # Generiere 150 5-Minuten Kerzen
             for i in range(count, 0, -1):
-                c_time = (now - timedelta(minutes=i * 5)).isoformat() + "Z"
+                c_time = (now - timedelta(minutes=i * 5)).isoformat().replace("+00:00", "Z")
                 # Volatilität: 3 bis 8 Pips pro Kerze
                 drift = random.gauss(0, 4 * pip)
                 open_p = curr_p
@@ -96,7 +96,7 @@ class SimulatorBroker(BaseBroker):
 
         # Update last candle or append new one
         candles = self.candle_history.setdefault(instrument, [])
-        now_str = datetime.utcnow().isoformat() + "Z"
+        now_str = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         
         if candles:
             last = candles[-1]
@@ -165,7 +165,7 @@ class SimulatorBroker(BaseBroker):
         pos.unrealized_pnl = 0.0
         pos.current_price = exit_price
         pos.status = PositionStatus.CLOSED
-        pos.close_time = datetime.utcnow().isoformat() + "Z"
+        pos.close_time = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         pos.close_reason = reason
         
         self.balance += realized
@@ -215,7 +215,7 @@ class SimulatorBroker(BaseBroker):
 
         return MarketPrice(
             instrument=instrument,
-            time=datetime.utcnow().isoformat() + "Z",
+            time=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             bid=bid,
             ask=ask,
             spread_pips=spread_pip,
@@ -236,10 +236,11 @@ class SimulatorBroker(BaseBroker):
             entry_price=entry,
             current_price=entry,
             stop_loss=order.stop_loss,
+            initial_stop_loss=order.stop_loss,
             take_profit=order.take_profit,
             unrealized_pnl=0.0,
             realized_pnl=0.0,
-            open_time=datetime.utcnow().isoformat() + "Z",
+            open_time=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
             status=PositionStatus.OPEN
         )
         self.open_positions.append(pos)

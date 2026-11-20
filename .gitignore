@@ -35,6 +35,7 @@ venv.bak/
 
 # Testing & Coverage
 .pytest_cache/
+data/*_trade_memory.json
 .coverage
 htmlcov/
 .tox/
