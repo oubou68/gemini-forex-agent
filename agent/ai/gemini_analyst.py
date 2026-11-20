@@ -22,7 +22,7 @@ class GeminiForexAnalyst:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "gemini-2.5-flash",
+        model_name: str = "gemini-4-argon",
         restrict_to_trading_hours: bool = True,
         temperature: float = 0.2,
         atr_sl_mult: float = 1.5,

@@ -125,7 +125,7 @@ Beispiel `.env`:
 ```env
 # Google Gemini
 GEMINI_API_KEY=AIzaSy...
-GEMINI_MODEL=gemini-2.5-flash
+GEMINI_MODEL=gemini-4-argon
 
 # OANDA Broker (Forex)
 OANDA_API_KEY=your_oanda_v20_key

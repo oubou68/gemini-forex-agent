@@ -22,7 +22,7 @@ class GeminiCryptoAnalyst:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "gemini-2.5-flash",
+        model_name: str = "gemini-4-argon",
         temperature: float = 0.2,
         atr_sl_mult: float = 2.0,
         atr_tp_mult: float = 3.8

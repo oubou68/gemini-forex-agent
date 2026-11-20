@@ -310,7 +310,7 @@ risk:
   auto_liquidate_on_drawdown: false # If false, halts new entries while letting existing trades run to SL/TP
 
 gemini:
-  model_name: "gemini-2.5-flash"
+  model_name: "gemini-4-argon"
   temperature: 0.2
   max_tokens: 1500
   confidence_threshold: 65       # Only execute trades if Gemini confidence >= 65%
